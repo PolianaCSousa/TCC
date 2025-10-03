@@ -3,6 +3,7 @@ import asyncio
 import socketio
 import threading
 import sys
+import time
 
 #creat a Socket.IO client
 sio = socketio.AsyncClient()
@@ -74,6 +75,7 @@ async def run_offer(target_name):
     # I need to create the channel before the offer ?
     # create a data channel with the given label - returns a RTCDataChannel object. With RTCDataChannel I can send and receive data.
     channel = peer.createDataChannel('chat')
+
     channel_log(channel, "-", "channel created")
 
     # @channel.on() register an event and what happens when the event occurs (same as event listeners of JS)
@@ -84,8 +86,8 @@ async def run_offer(target_name):
         print('Canal aberto')
         channel.send('Olá do peer1!')
         chat_ready = True
-        print("Chat pronto! Digite suas mensagens:")
-
+        time.sleep(5)
+        calculate_throughput()
 
     @channel.on("message")
     def on_message(message):
@@ -110,33 +112,10 @@ async def run_offer(target_name):
 
 
 
-
-#after crating an offer the ICE candidate is generated and it needs to be sent to the other peer
-@peer.on("icecandidate")
-async def on_ice_candidate(candidate):
-    if candidate:
-        print("Novo ICE Candidate:", candidate)
-        await sio.emit("candidate", {
-            "to": "peer2",
-            "candidate": {
-                "candidate": candidate.candidate,
-                "sdpMid": candidate.sdpMid,
-                "sdpMLineIndex": candidate.sdpMLineIndex,
-            }
-        })
+def calculate_throughput():
+    vazao = peer.createDataChannel("vazao")
 
 
-#receives the ICE candidate from the remote peer and set
-@sio.on("candidate")
-async def on_candidate(data):
-    candidate = data["candidate"]
-    await peer.addIceCandidate(
-        RTCIceCandidate(
-            sdpMid=candidate["sdpMid"],
-            sdpMLineIndex=candidate["sdpMLineIndex"],
-            candidate=candidate["candidate"]
-        )
-    )
 
 
 # Função para lidar com input do usuário em thread separada
@@ -167,7 +146,7 @@ async def message_processor():
 
             # Verifica se o canal está pronto
             if channel and chat_ready:
-                send_message(channel, f"Peer1: {message}")
+                send_message(channel, f"P1: {message}")
 
             # Marca a tarefa como concluída
             message_queue.task_done()

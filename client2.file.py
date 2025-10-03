@@ -52,11 +52,14 @@ async def on_offer(data):
         global chat_ready
         print("Canal aberto no peer2")
         chat_ready = True
-        print("Chat pronto! Digite suas mensagens:")
+
 
         @channel.on("message")
         def on_message(message):
             print(f"{message}")
+
+        if channel.label == "vazao":
+            print(f'Canal de vazão recebido :) o id dele é: {channel.id}')
 
 
     answer = await peer.createAnswer()
@@ -78,32 +81,7 @@ async def on_answer(data):
     sdp = RTCSessionDescription(sdp=data["answer"]["sdp"], type=data["answer"]["type"])
     await peer.setRemoteDescription(sdp)
 
-#after crating an offer the ICE candidate is generated and it needs to be sent to the other peer
-@peer.on("icecandidate")
-async def on_ice_candidate(candidate):
-    if candidate:
-        print("Novo ICE Candidate:", candidate)
-        await sio.emit("candidate", {
-            "to": "peer1",
-            "candidate": {
-                "candidate": candidate.candidate,
-                "sdpMid": candidate.sdpMid,
-                "sdpMLineIndex": candidate.sdpMLineIndex,
-            }
-        })
 
-
-#receives the ICE candidate from the remote peer and set
-@sio.on("candidate")
-async def on_candidate(data):
-    candidate = data["candidate"]
-    await peer.addIceCandidate(
-        RTCIceCandidate(
-            sdpMid=candidate["sdpMid"],
-            sdpMLineIndex=candidate["sdpMLineIndex"],
-            candidate=candidate["candidate"]
-        )
-    )
 
 #my run_offer is the make_offer of the gpt
 async def run_offer(target_name):
@@ -170,7 +148,7 @@ async def message_processor():
 
             # Verifica se o canal está pronto
             if channel and chat_ready:
-                send_message(channel, f"Peer2: {message}")
+                send_message(channel, f"P2: {message}")
 
             # Marca a tarefa como concluída
             message_queue.task_done()
@@ -195,7 +173,7 @@ async def main():
     input_thread.start()
 
     # Conectando ao servidor
-    await sio.connect('https://669102ca18d2.ngrok-free.app')
+    await sio.connect('http://localhost:5000')
 
     print("Conectando... Aguardando oferta do peer1...")
 
@@ -206,7 +184,6 @@ async def main():
         print("\nDesconectando...")
         processor_task.cancel()
         await sio.disconnect()
-
 
 if __name__ == "__main__":
     asyncio.run(main())
