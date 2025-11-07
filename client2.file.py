@@ -28,6 +28,7 @@ async def disconnect():
 
 
 channels = {}
+teste_ping = {}
 #this method response to an offer from another peer - the offer that comes from the server
 @sio.on("offer")
 async def on_offer(data):
@@ -63,11 +64,21 @@ async def on_offer(data):
                 print(f"[CONTROLE]\t {message}")
 
         if received_channel.label == "ping":
-            print(f'[PING]\t RECEBIDO no cliente2 {received_channel.id}')
+            @received_channel.on("message")
+            def on_ping(message):
+                if message == 'PING':
+                    print("[PING]\t <<< recebi PING")
+                    asyncio.create_task(envia_ping(received_channel))
+                else:
+                    print("[PING]\t <<< recebi PONG")
+                    # responde_pong(received_channel)
+                    # asyncio.create_task(envia_ping(received_channel))
 
-            print("[PING]\t <<< recebi PING")
-            responde_pong(received_channel)
-            asyncio.create_task(envia_ping(received_channel))  # PAREI AQUI
+                    #TO DO: depois que finalizar o teste eu posso enviar no canal de controle dizendo que finalizou.
+                    #Para isso, vou ter que armazenar os canais em um dicionário para quando eu quiser mandar por eles,
+                    #mesmo que eu não tenha recebido nada dele naquele momento.
+
+
 
 
 #region Cálculo e envio do ping

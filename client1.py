@@ -14,6 +14,7 @@ channel_vazao = None
 channel_ping = None
 
 
+
 #conect to server
 @sio.event
 async def connect():
@@ -92,25 +93,15 @@ async def run_offer(target_name):
 
         @channel_ping.on("open")
         def on_channel_ping():
-            asyncio.create_task(envia_ping(channel_ping))  # PAREI AQUI
-        # asyncio.create_task(calculate_troughput(channel_vazao)) #PAREI AQUI
+            asyncio.create_task(envia_ping(channel_ping))
 
-    @peer.on("datachannel")
-    def on_datachannel(received_channel):
-        # global channel_vazao, control_channel
 
-        # channels[received_channel.label] = received_channel
+    @channel_ping.on("message")
+    def on_message(message):
+        print("[PING]\t <<< recebi PONG")
+        responde_pong(channel_ping)
 
-        if (received_channel.label == "controle"):
-            @received_channel.on("message")  # verificar se seria mensagem mesmo o evento
-            def on_message(message):
-                print(f"{message}")
 
-        if received_channel.label == "píng":
-            print(f'[PING]\t RECEBIDO no cliente1 {received_channel.id}')
-
-            print("[PING]\t <<< recebi PING")
-            responde_pong(received_channel)
 
 
 async def envia_ping(channel_ping):
