@@ -1,7 +1,6 @@
 from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate
 import asyncio
 import socketio
-import threading
 import sys
 import time
 
@@ -10,17 +9,9 @@ sio = socketio.AsyncClient()
 peer = RTCPeerConnection()
 
 # Variável global para o canal
-channel = None
-chat_ready = False
-message_queue = asyncio.Queue() #PRECISO ADICIONAR ISSO
-
-#logs
-def channel_log(channel, t, message):
-    print(f'channel({channel}) {t} : {message}')
-
-def send_message(channel, message):
-    channel_log(channel, ">", message)
-    channel.send(message)
+control_channel = None #chamar de canal de controle
+channel_vazao = None
+channel_ping = None
 
 
 #conect to server
@@ -35,6 +26,7 @@ async def connect():
 async def disconnect():
     print("Desconectado do servidor")
 
+
 #this method response to an offer from another peer - the offer that comes from the server
 @sio.on("offer")
 async def on_offer(data):
@@ -42,10 +34,10 @@ async def on_offer(data):
     await peer.setRemoteDescription(sdp)
 
     @peer.on("datachannel")
-    def on_datachannel(channel):
+    def on_datachannel(channel_msg):
         print("canal recebido")
 
-        @channel.on("message")
+        @channel_msg.on("message")
         def on_message(message):
             print("💬", message)
 
@@ -60,6 +52,7 @@ async def on_offer(data):
         }
     })
 
+
 #this method receives the answer of the peer.
 @sio.on("answer")
 async def on_answer(data):
@@ -68,36 +61,18 @@ async def on_answer(data):
     await peer.setRemoteDescription(sdp)
 
 
-#my run_offer is the make_offer of the gpt
+
 async def run_offer(target_name):
-    global channel , chat_ready #ADICIONEI O CHAT_READY
 
-    # I need to create the channel before the offer ?
-    # create a data channel with the given label - returns a RTCDataChannel object. With RTCDataChannel I can send and receive data.
-    channel = peer.createDataChannel('chat')
+    control_channel = peer.createDataChannel('controle')
+    global channel_vazao, channel_ping
+    channel_vazao = peer.createDataChannel("vazao") #aparentemente preciso criar todos os canais antes de estabelecer a conexão
+    channel_ping = peer.createDataChannel("ping")
 
-    channel_log(channel, "-", "channel created")
-
-    # @channel.on() register an event and what happens when the event occurs (same as event listeners of JS)
-    # O handler do "datachannel" precisa estar registrado antes da troca de SDP terminar, senão o canal pode chegar e você não terá como tratá-lo.
-    @channel.on("open")
-    def on_open():
-        global chat_ready
-        print('Canal aberto')
-        channel.send('Olá do peer1!')
-        chat_ready = True
-        time.sleep(5)
-        calculate_throughput()
-
-    @channel.on("message")
-    def on_message(message):
-        print(f"{message}")
-
-
+    #region Cria oferta SDP
     offer = await peer.createOffer()  # create the SDP offer - IS CORRECT TO SAY 'SDP OFFER'?
     await peer.setLocalDescription(
         offer)  # generate the SDP description of the offer - the local description is the offer
-
 
     # await offer_peer.setRemoteDescription(answer_peer.localDescription) #set its remote description as the answer peer's local description
     print('debug - oferta criada no peer 1')
@@ -109,64 +84,91 @@ async def run_offer(target_name):
             "sdp": peer.localDescription.sdp
         }
     })
+    #endregion
+
+    @control_channel.on("open")
+    async def control_task():
+        control_channel.send('O teste de PING-PONG irá começar...')
+
+        @channel_ping.on("open")
+        def on_channel_ping():
+            asyncio.create_task(envia_ping(channel_ping))  # PAREI AQUI
+        # asyncio.create_task(calculate_troughput(channel_vazao)) #PAREI AQUI
+
+    @peer.on("datachannel")
+    def on_datachannel(received_channel):
+        # global channel_vazao, control_channel
+
+        # channels[received_channel.label] = received_channel
+
+        if (received_channel.label == "controle"):
+            @received_channel.on("message")  # verificar se seria mensagem mesmo o evento
+            def on_message(message):
+                print(f"{message}")
+
+        if received_channel.label == "píng":
+            print(f'[PING]\t RECEBIDO no cliente1 {received_channel.id}')
+
+            print("[PING]\t <<< recebi PING")
+            responde_pong(received_channel)
 
 
+async def envia_ping(channel_ping):
+    package = 'PING'
+    channel_ping.send(package)
+    print("[PING]\t >>> enviei PING")
 
-def calculate_throughput():
-    vazao = peer.createDataChannel("vazao")
-
-
-
-
-# Função para lidar com input do usuário em thread separada
-def input_handler():
-    global message_queue
-    while True:
-
-        try:
-            message = input()
-            if message.lower() == 'quit':
-                print("Saindo do chat...")
-                break
-            # Coloca a mensagem na queue de forma thread-safe
-            asyncio.run_coroutine_threadsafe(message_queue.put(message), loop)
-        except (EOFError, KeyboardInterrupt):
-            print("\nSaindo do chat...")
-            break
+def responde_pong(channel_ping):
+    package = 'PONG'
+    channel_ping.send(package)
+    print("[PING]\t >>> respondi PONG")
 
 
+#region Cálculo e envio da vazão
+async def throughput_task(channel_vazao):
+    print(f'Os testes irão começar: \n')
+    throughput_result = await calculate_throughput(channel_vazao)
+    print(f'\nO teste de vazão terminou\nA vazão calculada foi de: {throughput_result}mbps')
+    return throughput_result
 
-# Task para processar mensagens da queue
-async def message_processor():
-    global channel, chat_ready, message_queue
-    while True:
-        try:
-            # Aguarda uma mensagem da queue
-            message = await message_queue.get()
 
-            # Verifica se o canal está pronto
-            if channel and chat_ready:
-                send_message(channel, f"P1: {message}")
+async def calculate_throughput(channel_vazao):
+    @channel_vazao.on("open")
+    async def on_open():
+        package = bytes(1400)
+        tam_total_dados = 10 * 10 ** 6  # enviarei no total 10MB
+        qtd_pacotes = tam_total_dados // sys.getsizeof(package)
 
-            # Marca a tarefa como concluída
-            message_queue.task_done()
-        except Exception as e:
-            print(f"Erro ao processar mensagem: {e}")
+        for i in range(0, qtd_pacotes):
+            channel_vazao.send(f"pacote[{i}]")
+            # channel_vazao.send(package)
 
-# Variável global para o loop
-loop = None
+'''
+#  o codigo do send_packages eu passei pro calculate_throughput
+async def send_packages(channel_vazao):
+    #byte = np.int8.tobytes(1, byteorder='little')
+    #package = [byte] * 1400
+
+    #package = os.urandom(1400)
+    package = bytes(1400)
+    tam_total_dados = 10 * 10 ** 6  # enviarei no total 10MB
+    qtd_pacotes = tam_total_dados // sys.getsizeof(package)
+
+    for i in range(0, qtd_pacotes):
+        channel_vazao.send(f"pacote[{i}]")
+'''
+#endregion
 
 # Função principal para iniciar o cliente e conectar
 async def main():
-    global loop
-    loop = asyncio.get_event_loop() #retorna o loop de eventos atual, que é o núcleo onde tudo do asyncio acontece (é o motor do asyncio)
+    # Inicia task do canal de controle
+    #control = asyncio.create_task(control_task())
 
-    # Inicia task para processar mensagens
-    processor_task = asyncio.create_task(message_processor()) #ao criar a task o async.io roda o metodo message_processor paralelamente
+    #onde coloco o await control?
 
-    # Inicia thread para input do usuário
-    input_thread = threading.Thread(target=input_handler, daemon=True)
-    input_thread.start()
+    # Inicia task do canal de vazão - acho que não preciso fazer isso, basta chamá-la dentro da task de controle
+
+    # Inicia task do canal de ping - acho que não preciso fazer isso, basta chamá-la dentro da task de controle
 
     # Conectando ao servidor
     await sio.connect('http://localhost:5000')
@@ -174,12 +176,13 @@ async def main():
     print("Conectando... Aguarde o canal ser estabelecido.")
 
     try:
-        # Aguarde até que a conexão seja estabelecida
         await sio.wait()
     except KeyboardInterrupt:
-        print("\nDesconectando...")
-        processor_task.cancel()
+        print("\nSaindo...")
+        #control_task.cancel()
         await sio.disconnect()
+
+
 
 if __name__ == "__main__":
     asyncio.run(main())
