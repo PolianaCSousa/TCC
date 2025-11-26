@@ -13,7 +13,8 @@ control_channel = None #chamar de canal de controle
 channel_vazao = None
 channel_ping = None
 
-
+t0 = None
+t1 = None
 
 #conect to server
 @sio.event
@@ -89,7 +90,7 @@ async def run_offer(target_name):
 
     @control_channel.on("open")
     async def control_task():
-        control_channel.send('O teste de PING-PONG irá começar...')
+        control_channel.send('O teste de PING irá começar...')
 
         @channel_ping.on("open")
         def on_channel_ping():
@@ -98,23 +99,34 @@ async def run_offer(target_name):
 
     @channel_ping.on("message")
     def on_message(message):
-        print("[PING]\t <<< recebi PONG")
-        responde_pong(channel_ping)
+        global t0, t1
+        t1 = time.time_ns()
+        print("[PING]\t <<< recebi PING-ACK")
+        responde_ack(channel_ping)
+        calculo_ping_a_b = (t1 - t0)/(10**6)
+        print(f'[  INFO  ]\t PING a=>b {calculo_ping_a_b} ms')
+        control_channel.send(f'PING a=>b {calculo_ping_a_b} ms')
 
 
+    @control_channel.on("message")
+    def on_message(message):
+        print(f"[CONTROLE]\t {message}")
 
 
 async def envia_ping(channel_ping):
+    global t0
     package = 'PING'
+    t0 = time.time_ns()
     channel_ping.send(package)
     print("[PING]\t >>> enviei PING")
 
-def responde_pong(channel_ping):
-    package = 'PONG'
+def responde_ack(channel_ping):
+    package = 'ACK'
     channel_ping.send(package)
-    print("[PING]\t >>> respondi PONG")
+    print("[PING]\t >>> respondi ACK")
 
 
+#PAREI AQUI: fazer o calculo de vazão so de A para B inicialmente
 #region Cálculo e envio da vazão
 async def throughput_task(channel_vazao):
     print(f'Os testes irão começar: \n')

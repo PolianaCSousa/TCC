@@ -10,9 +10,12 @@ peer = RTCPeerConnection()
 
 
 # Variáveis globais para o canal
-control_channel = None
-channel_vazao = None
-channel_ping = None
+#control_channel = None
+#channel_vazao = None
+#channel_ping = None
+
+t0 = None
+t1 = None
 
 
 #conect to server
@@ -54,25 +57,32 @@ async def on_offer(data):
 
     @peer.on("datachannel")
     def on_datachannel(received_channel):
-        # global channel_vazao, control_channel
-
-        # channels[received_channel.label] = received_channel
 
         if (received_channel.label == "controle"):
+
+            channels["controle"] = received_channel
+
             @received_channel.on("message")  # verificar se seria mensagem mesmo o evento
             def on_message(message):
                 print(f"[CONTROLE]\t {message}")
 
         if received_channel.label == "ping":
+
+            channels["ping"] = received_channel
+
             @received_channel.on("message")
             def on_ping(message):
                 if message == 'PING':
                     print("[PING]\t <<< recebi PING")
                     asyncio.create_task(envia_ping(received_channel))
                 else:
-                    print("[PING]\t <<< recebi PONG")
-                    # responde_pong(received_channel)
-                    # asyncio.create_task(envia_ping(received_channel))
+                    global t0,t1
+                    t1 = time.time_ns()
+                    print("[PING]\t <<< recebi ACK")
+                    calculo_ping_b_a = (t1 - t0) / (10 ** 6)
+                    print(f'[  INFO  ]\t PING b=>a {calculo_ping_b_a} ms')
+                    channels["controle"].send(f'PING b=>a {calculo_ping_b_a} ms')
+
 
                     #TO DO: depois que finalizar o teste eu posso enviar no canal de controle dizendo que finalizou.
                     #Para isso, vou ter que armazenar os canais em um dicionário para quando eu quiser mandar por eles,
@@ -83,14 +93,16 @@ async def on_offer(data):
 
 #region Cálculo e envio do ping
 async def envia_ping(channel_vazao):
-    package = 'PING'
+    global t0
+    package = 'PING-ACK'
+    t0 = time.time_ns()
     channel_vazao.send(package)
-    print("[PING]\t >>> enviei PING")
+    print("[PING]\t >>> enviei PING-ACK")
 
-def responde_pong(channel_vazao):
+'''def responde_pong(channel_vazao):
     package = 'PONG'
     channel_vazao.send(package)
-    print("[PING]\t >>> respondi PONG")
+    print("[PING]\t >>> respondi PONG")'''
 #endregion
 
 
