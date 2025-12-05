@@ -12,9 +12,11 @@ peer = RTCPeerConnection()
 control_channel = None #chamar de canal de controle
 channel_vazao = None
 channel_ping = None
+ping_task = None
 
 t0 = None
 t1 = None
+ping_finished = asyncio.Event()
 
 #conect to server
 @sio.event
@@ -96,6 +98,14 @@ async def run_offer(target_name):
         def on_channel_ping():
             asyncio.create_task(envia_ping(channel_ping))
 
+        @channel_vazao.on("open")
+        async def on_channel_vazao():
+            await ping_finished.wait() #espera o teste de ping terminar
+            control_channel.send('O teste de VAZÃO irá começar...')
+            #confirmar com Everthon: acho que preciso garantir que nenhum canal esteja sendo usado, apenas o de vazão para dar um resultado mais fidedigno
+            await asyncio.sleep(2) #garante que todas as mensagens do canal de controle já tenham chegado.
+            asyncio.create_task(calculate_throughput(channel_vazao,control_channel))
+
 
     @channel_ping.on("message")
     def on_message(message):
@@ -110,7 +120,11 @@ async def run_offer(target_name):
 
     @control_channel.on("message")
     def on_message(message):
-        print(f"[CONTROLE]\t {message}")
+        if message == "Fim ping":
+            print(f'[CONTROLE]\t {message}')
+            ping_finished.set()
+        else:
+            print(f"[CONTROLE]\t {message}")
 
 
 async def envia_ping(channel_ping):
@@ -126,52 +140,20 @@ def responde_ack(channel_ping):
     print("[PING]\t >>> respondi ACK")
 
 
-#PAREI AQUI: fazer o calculo de vazão so de A para B inicialmente
-#region Cálculo e envio da vazão
-async def throughput_task(channel_vazao):
-    print(f'Os testes irão começar: \n')
-    throughput_result = await calculate_throughput(channel_vazao)
-    print(f'\nO teste de vazão terminou\nA vazão calculada foi de: {throughput_result}mbps')
-    return throughput_result
-
-
-async def calculate_throughput(channel_vazao):
-    @channel_vazao.on("open")
-    async def on_open():
-        package = bytes(1400)
-        tam_total_dados = 10 * 10 ** 6  # enviarei no total 10MB
-        qtd_pacotes = tam_total_dados // sys.getsizeof(package)
-
-        for i in range(0, qtd_pacotes):
-            channel_vazao.send(f"pacote[{i}]")
-            # channel_vazao.send(package)
-
-'''
-#  o codigo do send_packages eu passei pro calculate_throughput
-async def send_packages(channel_vazao):
-    #byte = np.int8.tobytes(1, byteorder='little')
-    #package = [byte] * 1400
-
-    #package = os.urandom(1400)
+async def calculate_throughput(channel_vazao,control_channel):
     package = bytes(1400)
     tam_total_dados = 10 * 10 ** 6  # enviarei no total 10MB
-    qtd_pacotes = tam_total_dados // sys.getsizeof(package)
-
+    qtd_pacotes = tam_total_dados //  len(package)
+    tam_pacote = len(package)
+    print(f'debug - o envios dos pacotes vai começar agora. \nVou enviar {qtd_pacotes} pacotes de tamanho {tam_pacote}')
     for i in range(0, qtd_pacotes):
-        channel_vazao.send(f"pacote[{i}]")
-'''
+        channel_vazao.send(package)
+    channel_vazao.send('fim')
+
 #endregion
 
 # Função principal para iniciar o cliente e conectar
 async def main():
-    # Inicia task do canal de controle
-    #control = asyncio.create_task(control_task())
-
-    #onde coloco o await control?
-
-    # Inicia task do canal de vazão - acho que não preciso fazer isso, basta chamá-la dentro da task de controle
-
-    # Inicia task do canal de ping - acho que não preciso fazer isso, basta chamá-la dentro da task de controle
 
     # Conectando ao servidor
     await sio.connect('http://localhost:5000')
@@ -184,7 +166,6 @@ async def main():
         print("\nSaindo...")
         #control_task.cancel()
         await sio.disconnect()
-
 
 
 if __name__ == "__main__":

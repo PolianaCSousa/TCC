@@ -14,8 +14,11 @@ peer = RTCPeerConnection()
 #channel_vazao = None
 #channel_ping = None
 
-t0 = None
-t1 = None
+ping_t0 = None
+ping_t1 = None
+vazao_t0 = None
+vazao_t1 = None
+qtd = 0
 
 
 #conect to server
@@ -59,7 +62,6 @@ async def on_offer(data):
     def on_datachannel(received_channel):
 
         if (received_channel.label == "controle"):
-
             channels["controle"] = received_channel
 
             @received_channel.on("message")  # verificar se seria mensagem mesmo o evento
@@ -67,7 +69,6 @@ async def on_offer(data):
                 print(f"[CONTROLE]\t {message}")
 
         if received_channel.label == "ping":
-
             channels["ping"] = received_channel
 
             @received_channel.on("message")
@@ -76,26 +77,48 @@ async def on_offer(data):
                     print("[PING]\t <<< recebi PING")
                     asyncio.create_task(envia_ping(received_channel))
                 else:
-                    global t0,t1
-                    t1 = time.time_ns()
+                    global ping_t0,ping_t1
+                    ping_t1 = time.time_ns()
                     print("[PING]\t <<< recebi ACK")
-                    calculo_ping_b_a = (t1 - t0) / (10 ** 6)
+                    calculo_ping_b_a = (ping_t1 - ping_t0) / (10 ** 6)
                     print(f'[  INFO  ]\t PING b=>a {calculo_ping_b_a} ms')
                     channels["controle"].send(f'PING b=>a {calculo_ping_b_a} ms')
+                    channels["controle"].send("Fim ping")
+
+        if received_channel.label == "vazao":
+            #print('canal vazao recebido')
+            channels["vazao"] = received_channel
+            @received_channel.on("message")
+            def on_message(message):
+                global qtd, vazao_t0
+                if qtd == 0:
+                    vazao_t0 = time.time() #retorna o tempo em segundos
+                    #print(f'debug - tamanho do pacote recebido {len(message)}') #sys.getsizeof(package) retorna o tamanho do objeto Python na memória
+                qtd = qtd+1 #Está contando TODOS os pacotes que estou enviando, inclusive o fim. Preciso subtrair ele no calculo? Creio que sim, já que ele tem um tamanho diferente dos pacotes que gerei, e portanto o calculo não ficaria preciso
+                if message == "fim":
+                    global vazao_t1
+                    vazao_t1 = time.time()
+                    #print(f"debug - {message}. Recebi {qtd} pacotes")
+                    #print(f'debug - vazao_t0 = {vazao_t0} e vazao_t1 = {vazao_t1}')
+                    tempo = vazao_t1 - vazao_t0
+                    print(f'debug - recebi {qtd-1} pacotes em {tempo}s')
+                    vazao_em_bytes = ((qtd-1) * 1400) / tempo #1400 é o tamanho do pacote
+                    vazao_em_MB = vazao_em_bytes / 10**6
+                    vazao_em_Mb = (vazao_em_bytes * 8) / 10**6
+                    print(f'[VAZÃO]\tPortanto a vazão de a=>b é {vazao_em_bytes} B/s ou {vazao_em_MB} MB/s ou {vazao_em_Mb * 8} Mbps') #confirmar se o cálculo está correto
 
 
-                    #TO DO: depois que finalizar o teste eu posso enviar no canal de controle dizendo que finalizou.
-                    #Para isso, vou ter que armazenar os canais em um dicionário para quando eu quiser mandar por eles,
-                    #mesmo que eu não tenha recebido nada dele naquele momento.
+
+
 
 
 
 
 #region Cálculo e envio do ping
 async def envia_ping(channel_vazao):
-    global t0
+    global ping_t0
     package = 'PING-ACK'
-    t0 = time.time_ns()
+    ping_t0 = time.time_ns()
     channel_vazao.send(package)
     print("[PING]\t >>> enviei PING-ACK")
 
