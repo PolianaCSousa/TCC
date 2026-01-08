@@ -62,7 +62,7 @@ async def on_offer(data):
 async def on_answer(data):
     print("debug - answer recebida no peer1")
     sdp = RTCSessionDescription(sdp=data["answer"]["sdp"], type=data["answer"]["type"])
-    await peer.setRemoteDescription(sdp)
+    await peer.setRemoteDescription(sdp) #a partir daqui ele já nao usa mais o servidor rendezvous
 
 
 
@@ -102,8 +102,10 @@ async def run_offer(target_name):
         async def on_channel_vazao():
             await ping_finished.wait() #espera o teste de ping terminar
             control_channel.send('O teste de VAZÃO irá começar...')
+            asyncio.create_task(calculate_throughput(channel_vazao, control_channel))
+            #registrar um evento await pra esperar por um ACK do outro lado confirmando que o teste de vazão pode começar
             #confirmar com Everthon: acho que preciso garantir que nenhum canal esteja sendo usado, apenas o de vazão para dar um resultado mais fidedigno
-            await asyncio.sleep(2) #garante que todas as mensagens do canal de controle já tenham chegado.
+            #await asyncio.sleep(2) #garante que todas as mensagens do canal de controle já tenham chegado.
             asyncio.create_task(calculate_throughput(channel_vazao,control_channel))
 
 
@@ -143,7 +145,7 @@ def responde_ack(channel_ping):
 async def calculate_throughput(channel_vazao,control_channel):
     package = bytes(1400)
     tam_total_dados = 10 * 10 ** 6  # enviarei no total 10MB
-    qtd_pacotes = tam_total_dados //  len(package)
+    qtd_pacotes = tam_total_dados // len(package)
     tam_pacote = len(package)
     print(f'debug - o envios dos pacotes vai começar agora. \nVou enviar {qtd_pacotes} pacotes de tamanho {tam_pacote}')
     for i in range(0, qtd_pacotes):

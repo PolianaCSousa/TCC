@@ -94,19 +94,20 @@ async def on_offer(data):
                 if qtd == 0:
                     vazao_t0 = time.time() #retorna o tempo em segundos
                     #print(f'debug - tamanho do pacote recebido {len(message)}') #sys.getsizeof(package) retorna o tamanho do objeto Python na memória
-                qtd = qtd+1 #Está contando TODOS os pacotes que estou enviando, inclusive o fim. Preciso subtrair ele no calculo? Creio que sim, já que ele tem um tamanho diferente dos pacotes que gerei, e portanto o calculo não ficaria preciso
+                qtd = qtd+1
                 if message == "fim":
                     global vazao_t1
                     vazao_t1 = time.time()
-                    #print(f"debug - {message}. Recebi {qtd} pacotes")
-                    #print(f'debug - vazao_t0 = {vazao_t0} e vazao_t1 = {vazao_t1}')
                     tempo = vazao_t1 - vazao_t0
-                    print(f'debug - recebi {qtd-1} pacotes em {tempo}s')
+                    #print(f'debug - recebi {qtd-1} pacotes em {tempo}s')
                     vazao_em_bytes = ((qtd-1) * 1400) / tempo #1400 é o tamanho do pacote
                     vazao_em_MB = vazao_em_bytes / 10**6
-                    vazao_em_Mb = (vazao_em_bytes * 8) / 10**6
-                    print(f'[VAZÃO]\tPortanto a vazão de a=>b é {vazao_em_bytes} B/s ou {vazao_em_MB} MB/s ou {vazao_em_Mb * 8} Mbps') #confirmar se o cálculo está correto
-
+                    #vazao_em_Mb = (vazao_em_bytes * 8) / 10**6
+                    vazao_em_Mbps = vazao_em_MB * 8
+                    channels["controle"].send(f'[INFO] RESULTADO DO TESTE DE UPLOAD: \n A vazão calculada é de {vazao_em_Mbps} Mb/s')
+                    print(f'[CONTROLE] RESULTADO DO TESTE DE DOWNLOAD: \n A vazão calculada é de {vazao_em_Mbps} Mb/s')
+                    #print(f'[VAZÃO]\tPortanto a vazão de a=>b é {vazao_em_bytes} B/s ou {vazao_em_MB} MB/s ou {vazao_em_Mb * 8} Mbps') #confirmar se o cálculo está correto
+                    #calculate_throughput()
 
 
 
