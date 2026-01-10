@@ -32,7 +32,7 @@ async def offer(sid,data):
     sdp = data["offer"]
     target = data["to"] #em que momento o cliente definiu pra quem mandar? dentro do sio.emit("offer", ...)
     target_sid = peers.get(target) #eu achei que ele enviava o sid e não o nome
-
+    print(f'debug - sdp do offer: \n{sdp}')
     if target_sid:
         await sio.emit("offer",{"from": sid,"offer": sdp}, to=target_sid)
 
@@ -44,6 +44,7 @@ async def answer(sid,data):
     target_sid = data["to"]
     #target_sid = peers.get(target) - eu ja estou recebendo o sid do peer1
     print('target_sid: ', target_sid)
+    print(f'debug - sdp do answer: \n{sdp}')
     if target_sid:
         await sio.emit("answer",{"from": sid, "answer": sdp}, to=target_sid)
 

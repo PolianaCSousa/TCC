@@ -1,21 +1,62 @@
-from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate
+from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, RTCDataChannel
 import asyncio
 import socketio
-import sys
 import time
+from typing import TypedDict
 
-#creat a Socket.IO client
+#creat a Socket.IO client and a peer for WebRTC connection
 sio = socketio.AsyncClient()
 peer = RTCPeerConnection()
 
-# Variável global para o canal
-control_channel = None #chamar de canal de controle
-channel_vazao = None
-channel_ping = None
-ping_task = None
+#typing for global CLIENT and SERVER dictionaries
+class Client(TypedDict):
+    control_channel: RTCDataChannel | None
+    throughput_channel: RTCDataChannel | None
+    ping_channel: RTCDataChannel | None
+    t0_ping: int | None
+    t1_ping: int | None
+    t0_throughput: int | None
+    t1_throughput: int | None
 
-t0 = None
-t1 = None
+class Server(TypedDict):
+    t0_ping: int | None
+    t1_ping: int | None
+    t0_throughput: int | None
+    t1_throughput: int | None
+    qtd_packages: int
+
+#global variables
+CLIENT: Client = {
+    "control_channel": None,
+    "throughput_channel": None,
+    "ping_channel": None,
+    "t0_ping": None,
+    "t1_ping": None,
+    "t0_throughput": None,
+    "t1_throughput": None
+}
+SERVER: Server = {
+    "t0_ping": None,
+    "t1_ping": None,
+    "t0_throughput": None,
+    "t1_throughput": None,
+    "qtd_packages": 0
+}
+
+
+#control_channel = None
+#throughput_channel = None
+#ping_channel = None
+ping_task = None
+#t0_ping = None
+#t1_ping = None
+#t0_throughput = None
+#t1_throughput = None
+
+#flag to signalize if the peer is a client or a server
+#OBS: a client is the peer who makes the offer while the server accepts the offer
+ROLE = 'client'
+
 ping_finished = asyncio.Event()
 
 #conect to server
@@ -23,8 +64,8 @@ ping_finished = asyncio.Event()
 async def connect():
     print("Conectado ao servidor")
     await sio.emit("join", {"name": "peer1"})
-    await run_offer(target_name="peer2") #I guess I need to run the same code but with names exchanged
-
+    if ROLE == 'client':
+        await client_make_offer(target_name="peer2")
 
 @sio.event
 async def disconnect():
@@ -57,21 +98,22 @@ async def on_offer(data):
     })
 
 
-#this method receives the answer of the peer.
+#this method receives the answer of the peer server.
 @sio.on("answer")
-async def on_answer(data):
-    print("debug - answer recebida no peer1")
+async def client_receive_answer(data):
+    print("debug - answer recebida no peer1 (cliente)")
     sdp = RTCSessionDescription(sdp=data["answer"]["sdp"], type=data["answer"]["type"])
-    await peer.setRemoteDescription(sdp) #a partir daqui ele já nao usa mais o servidor rendezvous
+    await peer.setRemoteDescription(sdp) #this is the moment the connection is stablished
 
 
+#region Client Make Offer
+#client runs this method to make his offer to peer server
+async def client_make_offer(target_name):
 
-async def run_offer(target_name):
-
-    control_channel = peer.createDataChannel('controle')
-    global channel_vazao, channel_ping
-    channel_vazao = peer.createDataChannel("vazao") #aparentemente preciso criar todos os canais antes de estabelecer a conexão
-    channel_ping = peer.createDataChannel("ping")
+    #all channels must be created before the connection stablishment - these channels are created on client peer
+    CLIENT["control_channel"] = peer.createDataChannel('controle')
+    CLIENT["throughput_channel"] = peer.createDataChannel("vazao")
+    CLIENT["ping_channel"] = peer.createDataChannel("ping")
 
     #region Cria oferta SDP
     offer = await peer.createOffer()  # create the SDP offer - IS CORRECT TO SAY 'SDP OFFER'?
@@ -80,6 +122,7 @@ async def run_offer(target_name):
 
     # await offer_peer.setRemoteDescription(answer_peer.localDescription) #set its remote description as the answer peer's local description
     print('debug - oferta criada no peer 1')
+    #print(f'debug - sdp do peer: {peer.localDescription.sdp}')
     await sio.emit("offer", { #esse offer que ele está chamando é no client ou é no server?
         "to": target_name,
         "from": "peer1", #aparentemente o erro está aqui
@@ -90,67 +133,63 @@ async def run_offer(target_name):
     })
     #endregion
 
-    @control_channel.on("open")
+    @CLIENT["control_channel"].on("open")
     async def control_task():
-        control_channel.send('O teste de PING irá começar...')
+        CLIENT["control_channel"].send('O teste de PING irá começar...')
 
-        @channel_ping.on("open")
-        def on_channel_ping():
-            asyncio.create_task(envia_ping(channel_ping))
+        @CLIENT["ping_channel"].on("open")
+        def on_ping_channel():
+            asyncio.create_task(client_send_ping(CLIENT["ping_channel"]))
 
-        @channel_vazao.on("open")
-        async def on_channel_vazao():
+        @CLIENT["throughput_channel"].on("open")
+        async def on_throughput_channel():
             await ping_finished.wait() #espera o teste de ping terminar
-            control_channel.send('O teste de VAZÃO irá começar...')
-            asyncio.create_task(calculate_throughput(channel_vazao, control_channel))
-            #registrar um evento await pra esperar por um ACK do outro lado confirmando que o teste de vazão pode começar
-            #confirmar com Everthon: acho que preciso garantir que nenhum canal esteja sendo usado, apenas o de vazão para dar um resultado mais fidedigno
-            #await asyncio.sleep(2) #garante que todas as mensagens do canal de controle já tenham chegado.
-            asyncio.create_task(calculate_throughput(channel_vazao,control_channel))
+            CLIENT["control_channel"].send('O teste de VAZÃO irá começar...')
+            asyncio.create_task(client_calculate_throughput(CLIENT["throughput_channel"], CLIENT["control_channel"]))
 
 
-    @channel_ping.on("message")
+    @CLIENT["ping_channel"].on("message")
     def on_message(message):
-        global t0, t1
-        t1 = time.time_ns()
+        CLIENT["t1_ping"] = time.time_ns()
         print("[PING]\t <<< recebi PING-ACK")
-        responde_ack(channel_ping)
-        calculo_ping_a_b = (t1 - t0)/(10**6)
+        client_send_ack(CLIENT["ping_channel"])
+        calculo_ping_a_b = (CLIENT["t1_ping"] - CLIENT["t0_ping"])/(10**6)
         print(f'[  INFO  ]\t PING a=>b {calculo_ping_a_b} ms')
-        control_channel.send(f'PING a=>b {calculo_ping_a_b} ms')
+        CLIENT["control_channel"].send(f'PING a=>b {calculo_ping_a_b} ms')
 
 
-    @control_channel.on("message")
+    @CLIENT["control_channel"].on("message")
     def on_message(message):
         if message == "Fim ping":
             print(f'[CONTROLE]\t {message}')
             ping_finished.set()
         else:
             print(f"[CONTROLE]\t {message}")
+#endregion
 
+async def client_send_ping(ping_channel):
 
-async def envia_ping(channel_ping):
-    global t0
     package = 'PING'
-    t0 = time.time_ns()
-    channel_ping.send(package)
+    CLIENT["t0_ping"] = time.time_ns()
+    ping_channel.send(package)
     print("[PING]\t >>> enviei PING")
 
-def responde_ack(channel_ping):
+def client_send_ack(ping_channel):
     package = 'ACK'
-    channel_ping.send(package)
+    ping_channel.send(package)
     print("[PING]\t >>> respondi ACK")
 
-
-async def calculate_throughput(channel_vazao,control_channel):
+async def client_calculate_throughput(throughput_channel,control_channel):
     package = bytes(1400)
     tam_total_dados = 10 * 10 ** 6  # enviarei no total 10MB
     qtd_pacotes = tam_total_dados // len(package)
     tam_pacote = len(package)
     print(f'debug - o envios dos pacotes vai começar agora. \nVou enviar {qtd_pacotes} pacotes de tamanho {tam_pacote}')
     for i in range(0, qtd_pacotes):
-        channel_vazao.send(package)
-    channel_vazao.send('fim')
+        throughput_channel.send(package)
+    throughput_channel.send('fim')
+
+#region Server Receives Offer
 
 #endregion
 

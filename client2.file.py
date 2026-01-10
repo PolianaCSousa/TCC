@@ -14,11 +14,11 @@ peer = RTCPeerConnection()
 #channel_vazao = None
 #channel_ping = None
 
-ping_t0 = None
-ping_t1 = None
-vazao_t0 = None
-vazao_t1 = None
-qtd = 0
+t0_ping = None
+t1_ping = None
+t0_throughput = None
+t1_throughput = None
+qtd_packages = 0
 
 
 #conect to server
@@ -77,10 +77,10 @@ async def on_offer(data):
                     print("[PING]\t <<< recebi PING")
                     asyncio.create_task(envia_ping(received_channel))
                 else:
-                    global ping_t0,ping_t1
-                    ping_t1 = time.time_ns()
+                    global t0_ping,t1_ping
+                    t1_ping = time.time_ns()
                     print("[PING]\t <<< recebi ACK")
-                    calculo_ping_b_a = (ping_t1 - ping_t0) / (10 ** 6)
+                    calculo_ping_b_a = (t1_ping - t0_ping) / (10 ** 6)
                     print(f'[  INFO  ]\t PING b=>a {calculo_ping_b_a} ms')
                     channels["controle"].send(f'PING b=>a {calculo_ping_b_a} ms')
                     channels["controle"].send("Fim ping")
@@ -90,17 +90,17 @@ async def on_offer(data):
             channels["vazao"] = received_channel
             @received_channel.on("message")
             def on_message(message):
-                global qtd, vazao_t0
-                if qtd == 0:
-                    vazao_t0 = time.time() #retorna o tempo em segundos
+                global qtd_packages, t0_throughput
+                if qtd_packages == 0:
+                    t0_throughput = time.time() #retorna o tempo em segundos
                     #print(f'debug - tamanho do pacote recebido {len(message)}') #sys.getsizeof(package) retorna o tamanho do objeto Python na memória
-                qtd = qtd+1
+                qtd_packages = qtd_packages+1
                 if message == "fim":
-                    global vazao_t1
-                    vazao_t1 = time.time()
-                    tempo = vazao_t1 - vazao_t0
-                    #print(f'debug - recebi {qtd-1} pacotes em {tempo}s')
-                    vazao_em_bytes = ((qtd-1) * 1400) / tempo #1400 é o tamanho do pacote
+                    global t1_throughput
+                    t1_throughput = time.time()
+                    tempo = t1_throughput - t0_throughput
+                    #print(f'debug - recebi {qtd_packages-1} pacotes em {tempo}s')
+                    vazao_em_bytes = ((qtd_packages-1) * 1400) / tempo #1400 é o tamanho do pacote
                     vazao_em_MB = vazao_em_bytes / 10**6
                     #vazao_em_Mb = (vazao_em_bytes * 8) / 10**6
                     vazao_em_Mbps = vazao_em_MB * 8
@@ -117,9 +117,9 @@ async def on_offer(data):
 
 #region Cálculo e envio do ping
 async def envia_ping(channel_vazao):
-    global ping_t0
+    global t0_ping
     package = 'PING-ACK'
-    ping_t0 = time.time_ns()
+    t0_ping = time.time_ns()
     channel_vazao.send(package)
     print("[PING]\t >>> enviei PING-ACK")
 
