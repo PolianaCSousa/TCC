@@ -17,6 +17,7 @@ class Client(TypedDict):
     t1_ping: int | None
     t0_throughput: int | float | None
     t1_throughput: int | float | None
+    qtd_packages: int
 
 class Server(TypedDict):
     t0_ping: int | None
@@ -33,7 +34,8 @@ CLIENT: Client = {
     "t0_ping": None,
     "t1_ping": None,
     "t0_throughput": None,
-    "t1_throughput": None
+    "t1_throughput": None,
+    "qtd_packages": 0
 }
 SERVER: Server = {
     "t0_ping": None,
@@ -64,33 +66,7 @@ async def disconnect():
     print("Desconectado do servidor")
 
 
-#this method response to an offer from another peer - the offer that comes from the server
-'''@sio.on("offer")
-async def on_offer(data):
-    sdp = RTCSessionDescription(sdp=data["offer"]["sdp"], type=data["offer"]["type"])
-    await peer.setRemoteDescription(sdp)
-
-    @peer.on("datachannel")
-    def on_datachannel(channel_msg):
-        print("canal recebido")
-
-        @channel_msg.on("message")
-        def on_message(message):
-            print("💬", message)
-
-    answer = await peer.createAnswer()
-    await peer.setLocalDescription(answer)
-
-    await sio.emit("answer", {
-        "to": data["from"],
-        "answer": {
-            "type": peer.localDescription.type,
-            "sdp": peer.localDescription.sdp
-        }
-    })
-'''
-
-#this method receives the answer of the peer server.
+#this method receives the answer from the server peer.
 @sio.on("answer")
 async def client_receives_answer(data):
     print("debug - answer recebida no client_peer (cliente)")
@@ -135,7 +111,7 @@ async def client_make_offer(target_name):
         async def on_throughput_channel():
             await ping_finished.wait() #wait for ping test to be finished
             CLIENT["control_channel"].send('O teste de VAZÃO irá começar...')
-            asyncio.create_task(client_calculate_throughput(CLIENT["throughput_channel"]))
+            asyncio.create_task(calculate_throughput(CLIENT["throughput_channel"]))
 
 
     @CLIENT["ping_channel"].on("message")
@@ -155,6 +131,24 @@ async def client_make_offer(target_name):
             ping_finished.set()
         else:
             print(f"[CONTROLE]\t {message}")
+
+    @CLIENT["throughput_channel"].on("message")
+    def on_message(message):
+        if CLIENT["qtd_packages"] == 0:
+            CLIENT["t0_throughput"] = time.time()  # retorna o tempo em segundos
+            # print(f'debug - tamanho do pacote recebido {len(message)}') #sys.getsizeof(package) retorna o tamanho do objeto Python na memória
+        CLIENT["qtd_packages"] = CLIENT["qtd_packages"] + 1
+        if message == "fim":
+            CLIENT["t1_throughput"] = time.time()
+            tempo = CLIENT["t1_throughput"] - CLIENT["t0_throughput"]
+            # print(f'debug - recebi {qtd_packages-1} pacotes em {tempo}s')
+            vazao_em_bytes = ((CLIENT["qtd_packages"] - 1) * 1400) / tempo  # 1400 é o tamanho do pacote
+            vazao_em_MB = vazao_em_bytes / 10 ** 6
+            # vazao_em_Mb = (vazao_em_bytes * 8) / 10**6
+            vazao_em_Mbps = vazao_em_MB * 8
+            CLIENT["control_channel"].send(
+                f'[INFO] RESULTADO DO TESTE DE UPLOAD: \n A vazão calculada é de {vazao_em_Mbps} Mb/s')
+            print(f'[CONTROLE] RESULTADO DO TESTE DE DOWNLOAD: \n A vazão calculada é de {vazao_em_Mbps} Mb/s')
 #endregion
 
 #region Server Receives Offer
@@ -225,7 +219,7 @@ async def server_receives_offer(data):
                     vazao_em_Mbps = vazao_em_MB * 8
                     channels["controle"].send(f'[INFO] RESULTADO DO TESTE DE UPLOAD: \n A vazão calculada é de {vazao_em_Mbps} Mb/s')
                     print(f'[CONTROLE] RESULTADO DO TESTE DE DOWNLOAD: \n A vazão calculada é de {vazao_em_Mbps} Mb/s')
-                    #calculate_throughput()
+                    asyncio.create_task(calculate_throughput(channels["vazao"]))
 #endregion
 
 #region Cálculo e envio do ping
@@ -247,7 +241,7 @@ def client_send_ack(ping_channel):
     ping_channel.send(package)
     print("[PING]\t >>> respondi ACK")
 
-async def client_calculate_throughput(throughput_channel):
+async def calculate_throughput(throughput_channel):
     package = bytes(1400)
     tam_total_dados = 10 * 10 ** 6  # enviarei no total 10MB
     qtd_pacotes = tam_total_dados // len(package)
@@ -256,8 +250,6 @@ async def client_calculate_throughput(throughput_channel):
     for i in range(0, qtd_pacotes):
         throughput_channel.send(package)
     throughput_channel.send('fim')
-
-
 
 # Função principal para iniciar o cliente e conectar
 async def main():
