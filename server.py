@@ -1,5 +1,6 @@
 import socketio
 from aiohttp import web
+from typing import TypedDict
 
 #create a Socket.IO server
 sio = socketio.AsyncServer()
@@ -8,23 +9,41 @@ app = web.Application() #create a server (application) with aiohttp
 #A server configured for Aiohttp must be attached to an existing application:
 sio.attach(app)
 
-peers = {} #key: username value: sid (sessionID or socketID)
+#typing for peers list structure
+class Peer(TypedDict):
+    role: str | None
+    target: str | None
+    status: str | None
+    sid: str | None
+
+peers: list[Peer] = [] #key: username value: sid (sessionID or socketID)
+
 
 #the sid is passed automatically through the socket.io when a client connects to the server - PAREI AQUI
 @sio.event
 def connect(sid, environ, auth):
+    peers.append({
+        'role': None,
+        'target': None,
+        'status': None,
+        'sid': sid,
+    })
     print(f'connect {sid}')
 
 @sio.event
 def disconnect(sid, reason):
     print(f'disconnect {sid}')
 
-#peers["peer1"] = "rSs4ilC736zFokxDAAAN"
+
+#Acho que vou definir os nomes e pares aqui no metodo join, e depois de definidos vou informar aos pares quem eles são e com quem eles se conectam
 @sio.event
-async def join(sid,data):
-    username = data["name"]
-    peers[username] = sid
-    print(f'{username} entrou com SID: {sid}')
+async def join(sid):
+    #global QTD_PEERS
+    #username = 'peer' + str(QTD_PEERS)
+
+    #QTD_PEERS += 1
+
+    #print(f'{username} entrou com SID: {sid}')
 
 #foward the offer
 @sio.event

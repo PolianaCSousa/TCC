@@ -26,6 +26,12 @@ class Server(TypedDict):
     t1_throughput: int | float | None
     qtd_packages: int
 
+class Peer(TypedDict):
+    role: str | None
+    target: str | None
+    status: str | None
+    sid: str | None
+
 #global variables
 CLIENT: Client = {
     "control_channel": None,
@@ -46,24 +52,23 @@ SERVER: Server = {
 }
 #flag to signalize if the peer is a client or a server
 #OBS: a client is the peer who makes the offer while the server accepts the offer
-ROLE = ('server')
+ROLE = 'server'
 ping_finished = asyncio.Event()
 channels: dict[str, RTCDataChannel] = {}
+server_peers: list[Peer] = []
 
 #connect to server
 @sio.event
 async def connect():
     print("Conectado ao servidor")
-    if ROLE == 'client':
-        await sio.emit("join", {"name": "client_peer"})
-        await client_make_offer(target_name="server_peer")
-    else:
-        await sio.emit("join", {"name": "server_peer"})
+    await sio.emit("join")
+    #await client_make_offer(target_name="server_peer")
 
 #disconnect from server
 @sio.event
 async def disconnect():
     print("Desconectado do servidor")
+
 
 
 #this method receives the answer from the server peer.
