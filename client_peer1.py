@@ -77,16 +77,16 @@ async def disconnect():
 async def new_peer_on_server(data):
     print('debug - novo par no servidor')
     server_peers.append(data)
-    print(server_peers)
+    pprint(server_peers)
 
 @sio.on("snapshot")
 async def server_snapshot(data):
     print('debug - snapshot recebido do servidor')
     server_peers.extend(data["snapshot"])
 
-    #after receveing the snapshot from server I need to remove myself from my local list
+    # after receveing the snapshot from server I need to remove myself from my local list
     for peer in server_peers:
-        if(peer["sid"] == data["sid"]):
+        if (peer["sid"] == data["sid"]):
             server_peers.remove(peer)
 
     print(f'snapshot (lista local no peer): {server_peers}')

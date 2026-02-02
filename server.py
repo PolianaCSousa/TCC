@@ -21,14 +21,17 @@ peers: list[Peer] = [] #key: username value: sid (sessionID or socketID)
 
 #the sid is passed automatically through the socket.io when a client connects to the server - PAREI AQUI
 @sio.event
-def connect(sid, environ, auth):
+async def connect(sid, environ, auth):
     peers.append({
         'role': None,
         'target': None,
         'status': None,
         'sid': sid,
     })
-    print(f'connect {sid}')
+    await sio.emit('snapshot', {"snapshot": peers, "sid": sid}, to=sid)
+    await sio.emit('new_peer', {'role': None, 'target': None, 'status': None, 'sid': sid, }, skip_sid=sid)
+
+
 
 @sio.event
 def disconnect(sid, reason):
@@ -38,12 +41,10 @@ def disconnect(sid, reason):
 #Acho que vou definir os nomes e pares aqui no metodo join, e depois de definidos vou informar aos pares quem eles são e com quem eles se conectam
 @sio.event
 async def join(sid):
-    #global QTD_PEERS
-    #username = 'peer' + str(QTD_PEERS)
+    print(f'peer {sid} joined')
+    #await sio.emit('new_peer', {'role': None, 'target': None, 'status': None, 'sid': sid, }, skip_sid=sid)
+    #print(f'connect {sid}')
 
-    #QTD_PEERS += 1
-
-    #print(f'{username} entrou com SID: {sid}')
 
 #foward the offer
 @sio.event

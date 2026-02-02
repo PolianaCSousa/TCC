@@ -3,6 +3,7 @@ import asyncio
 import socketio
 import time
 from typing import TypedDict
+from pprint import pprint
 
 #creat a Socket.IO client and a peer for WebRTC connection
 sio = socketio.AsyncClient()
@@ -61,15 +62,34 @@ server_peers: list[Peer] = []
 @sio.event
 async def connect():
     print("Conectado ao servidor")
-    await sio.emit("join")
-    #await client_make_offer(target_name="server_peer")
+    if ROLE == 'client':
+        await sio.emit("join")
+        #await client_make_offer(target_name="server_peer")
+    else:
+        await sio.emit("join")
 
 #disconnect from server
 @sio.event
 async def disconnect():
     print("Desconectado do servidor")
 
+@sio.on("new_peer")
+async def new_peer_on_server(data):
+    print('debug - novo par no servidor')
+    server_peers.append(data)
+    pprint(server_peers)
 
+@sio.on("snapshot")
+async def server_snapshot(data):
+    print('debug - snapshot recebido do servidor')
+    server_peers.extend(data["snapshot"])
+
+    # after receveing the snapshot from server I need to remove myself from my local list
+    for peer in server_peers:
+        if (peer["sid"] == data["sid"]):
+            server_peers.remove(peer)
+
+    print(f'snapshot (lista local no peer): {server_peers}')
 
 #this method receives the answer from the server peer.
 @sio.on("answer")
@@ -262,7 +282,7 @@ async def main():
     # Conectando ao servidor
     await sio.connect('http://localhost:5000')
 
-    print("Conectando... Aguarde o canal ser estabelecido.")
+    #print("Conectando... Aguarde o canal ser estabelecido.")
 
     try:
         await sio.wait()
