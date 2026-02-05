@@ -28,14 +28,23 @@ async def connect(sid, environ, auth):
         'status': None,
         'sid': sid,
     })
+
+
+@sio.on("connected")
+async def client_connected(sid):
+    print(f'debug - O cliente {sid} está pronto para receber o snapshot. Enviando...')
     await sio.emit('snapshot', {"snapshot": peers, "sid": sid}, to=sid)
     await sio.emit('new_peer', {'role': None, 'target': None, 'status': None, 'sid': sid, }, skip_sid=sid)
-
 
 
 @sio.event
 def disconnect(sid, reason):
     print(f'disconnect {sid}')
+
+
+@sio.on("start_test")
+async def start_test(sid):
+    print(f'Peer {sid} emitiu start_test')
 
 
 #Acho que vou definir os nomes e pares aqui no metodo join, e depois de definidos vou informar aos pares quem eles são e com quem eles se conectam

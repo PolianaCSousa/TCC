@@ -55,23 +55,27 @@ SERVER: Server = {
 #OBS: a client is the peer who makes the offer while the server accepts the offer
 ROLE = 'client'
 ping_finished = asyncio.Event()
+snapshot_received = asyncio.Event()
 channels: dict[str, RTCDataChannel] = {}
 server_peers: list[Peer] = []
 
+#PROBABILY THIS METHOD WILL NOT BE NEEDED ANYMORE
 #connect to server
 @sio.event
 async def connect():
-    print("Conectado ao servidor")
-    if ROLE == 'client':
-        await sio.emit("join")
-        #await client_make_offer(target_name="server_peer")
-    else:
-        await sio.emit("join")
+    print("debug - conectado ao servidor")
+    await sio.emit("connected")
+    '''if ROLE == 'client':
+            await sio.emit("join")
+            #await client_make_offer(target_name="server_peer")
+        else:
+            await sio.emit("join")'''
 
 #disconnect from server
 @sio.event
 async def disconnect():
     print("Desconectado do servidor")
+
 
 @sio.on("new_peer")
 async def new_peer_on_server(data):
@@ -79,17 +83,20 @@ async def new_peer_on_server(data):
     server_peers.append(data)
     print(server_peers)
 
+
 @sio.on("snapshot")
 async def server_snapshot(data):
     print('debug - snapshot recebido do servidor')
     server_peers.extend(data["snapshot"])
 
-    #after receveing the snapshot from server I need to remove myself from my local list
+    #after receveing the snapshot from server the peer needs to remove itself from it's local list
     for peer in server_peers:
         if(peer["sid"] == data["sid"]):
             server_peers.remove(peer)
 
     print(f'snapshot (lista local no peer): {server_peers}')
+    await sio.emit("start_test")
+
 
 #this method receives the answer from the server peer.
 @sio.on("answer")
