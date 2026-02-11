@@ -51,18 +51,18 @@ SERVER: Server = {
     "t1_throughput": None,
     "qtd_packages": 0
 }
+SID = None
 #flag to signalize if the peer is a client or a server
 #OBS: a client is the peer who makes the offer while the server accepts the offer
-ROLE = 'client'
+ROLE = None
 ping_finished = asyncio.Event()
+snapshot_received = asyncio.Event()
 channels: dict[str, RTCDataChannel] = {}
 server_peers: list[Peer] = []
-
 
 #connect to server
 @sio.event
 async def connect():
-    print("debug - conectado ao servidor")
     await sio.emit("connected")
 
 
@@ -76,12 +76,14 @@ async def disconnect():
 async def new_peer_on_server(data):
     print('debug - novo par no servidor')
     server_peers.append(data)
-    pprint(server_peers)
+    print(server_peers)
 
 
 @sio.on("snapshot")
 async def server_snapshot(data):
-    print('debug - snapshot recebido do servidor')
+    global SID
+    SID = data["sid"]
+    print(f'meu sid é {SID}')
     server_peers.extend(data["snapshot"])
 
     #after receveing the snapshot from server the peer needs to remove itself from it's local list
@@ -89,8 +91,22 @@ async def server_snapshot(data):
         if(peer["sid"] == data["sid"]):
             server_peers.remove(peer)
 
-    print(f'snapshot (lista local no peer): {server_peers}')
-    await sio.emit("start_test")
+    print(f'snapshot recebido e tratado: {server_peers}')
+    await sio.emit("ready_to_start")
+
+@sio.on("role_defined")
+async def start_test(data):
+    global ROLE
+    ROLE = data["role"]
+
+    if ROLE == 'client':
+        update_peers_list(data["peer"], 'server')
+        print(f'lista local atualizada: {server_peers}')
+        target = data["peer"]["target"]
+        await client_make_offer(target_name=target)
+    else:
+        update_peers_list(data["peer"], 'client')
+        print(f'lista local atualizada: {server_peers}')
 
 
 #this method receives the answer from the server peer.
@@ -118,7 +134,6 @@ async def client_make_offer(target_name):
     #print(f'debug - sdp do peer: {peer.localDescription.sdp}')
     await sio.emit("offer", {
         "to": target_name,
-        "from": "client_peer",
         "offer": {
             "type": peer.localDescription.type,
             "sdp": peer.localDescription.sdp
@@ -267,6 +282,13 @@ def client_send_ack(ping_channel):
     package = 'ACK'
     ping_channel.send(package)
     print("[PING]\t >>> respondi ACK")
+
+def update_peers_list(this, role):
+    for peer in server_peers:
+        if peer["sid"] == this["target"]:
+            peer["role"] = role
+            peer["status"] = 'OCCUPIED'
+            peer["target"] = SID
 
 async def calculate_throughput(throughput_channel):
     package = bytes(1400)

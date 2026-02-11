@@ -2,6 +2,12 @@ import socketio
 from aiohttp import web
 from typing import TypedDict
 
+'''
+STATUS do peer:
+FREE
+OCCUPIED
+'''
+
 #create a Socket.IO server
 sio = socketio.AsyncServer()
 app = web.Application() #create a server (application) with aiohttp
@@ -25,7 +31,7 @@ async def connect(sid, environ, auth):
     peers.append({
         'role': None,
         'target': None,
-        'status': None,
+        'status': 'FREE',
         'sid': sid,
     })
 
@@ -42,25 +48,30 @@ def disconnect(sid, reason):
     print(f'disconnect {sid}')
 
 
-@sio.on("start_test")
-async def start_test(sid):
-    print(f'Peer {sid} emitiu start_test')
-
-
-#Acho que vou definir os nomes e pares aqui no metodo join, e depois de definidos vou informar aos pares quem eles são e com quem eles se conectam
-@sio.event
-async def join(sid):
-    print(f'peer {sid} joined')
-    #await sio.emit('new_peer', {'role': None, 'target': None, 'status': None, 'sid': sid, }, skip_sid=sid)
-    #print(f'connect {sid}')
+@sio.on("ready_to_start")
+async def matchmaking(sid):
+    print(f'Peer {sid} emitiu ready_to_start')
+    for peer in peers:
+        if peer["sid"] != sid and peer["status"] == 'FREE':
+            list_peer = peer
+            oferer_peer = find_peer(sid)
+            if oferer_peer["sid"] < list_peer["sid"]:
+                #the first parameter is the client peer
+                set_role_and_target(oferer_peer,list_peer)
+                await sio.emit("role_defined", {"peer": list_peer, "role": 'server'}, to=list_peer["sid"]) #emit for server peer first
+                await sio.emit("role_defined", {"peer": oferer_peer, "role": 'client'}, to=oferer_peer["sid"])
+            else:
+                set_role_and_target(list_peer,oferer_peer)
+                await sio.emit("role_defined", {"peer": oferer_peer, "role": 'server'}, to=oferer_peer["sid"])
+                await sio.emit("role_defined", {"peer": list_peer, "role": 'client'}, to=list_peer["sid"])
+    print(f'Lista do servidor: {peers}')
 
 
 #foward the offer
 @sio.event
 async def offer(sid,data):
     sdp = data["offer"]
-    target = data["to"] #em que momento o cliente definiu pra quem mandar? dentro do sio.emit("offer", ...)
-    target_sid = peers.get(target) #eu achei que ele enviava o sid e não o nome
+    target_sid = data["to"]
     print(f'debug - sdp do offer: \n{sdp}')
     if target_sid:
         await sio.emit("offer",{"from": sid,"offer": sdp}, to=target_sid)
@@ -86,6 +97,19 @@ async def candidate(sid, data):
     if target_sid:
         await sio.emit("candidate", {"from": sid, "candidate": data["candidate"]}, to=target_sid)
 
+def find_peer(sid):
+    for peer in peers:
+        if peer["sid"] == sid:
+            return peer
+    return None
+
+def set_role_and_target(client, server):
+    client["role"] = 'client'
+    client["target"] = server["sid"]
+    client["status"] = 'OCCUPIED'
+    server["role"] = 'server'
+    server["target"] = client["sid"]
+    server["status"] = 'OCCUPIED'
 
 # Run the aiohttp server manually with a specific host and port
 if __name__ == "__main__":
