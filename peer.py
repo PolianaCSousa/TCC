@@ -4,6 +4,8 @@ import socketio
 import time
 from typing import TypedDict
 import json
+import pandas as pd
+import os
 
 #creat a Socket.IO client and a peer for WebRTC connection
 sio = socketio.AsyncClient()
@@ -76,7 +78,8 @@ SID = None
 ROLE = None #OBS: a client is the peer who makes the offer while the server accepts the offer
 #flags for logs
 INFO = False
-DEBUG = False
+DEBUG = True
+SDP = None
 
 
 latency_finished = asyncio.Event()
@@ -155,7 +158,9 @@ async def client_receives_answer(data):
 #region Client Make Offer
 #client runs this method to make his offer to peer server
 async def client_make_offer(target_name):
-
+    @peer.on("icecandidate")
+    def on_icecandidate(candidate):
+        print("Client ICE candidate:", candidate)
     #all channels must be created before the connection stablishment - these channels are created on client peer
     CLIENT["control_channel"] = peer.createDataChannel(CONTROL)
     CLIENT["throughput_channel"] = peer.createDataChannel(THROUGHPUT)
@@ -227,7 +232,8 @@ async def client_make_offer(target_name):
             CLIENT["t1_throughput"] = time.time()
             tempo = CLIENT["t1_throughput"] - CLIENT["t0_throughput"]
             vazao_em_bytes = ((CLIENT["qtd_packages"] - 1) * 1400) / tempo  # 1400 é o tamanho do pacote
-            vazao_em_MB = vazao_em_bytes / 10 ** 6
+
+            vazao_em_MB = round(vazao_em_bytes / 10**6, 2)
             vazao_em_Mbps = vazao_em_MB * 8
 
             if ROLE == 'client':
@@ -235,6 +241,7 @@ async def client_make_offer(target_name):
                     print(f'sou cliente e ja tenho o download: {vazao_em_Mbps} Mbps')
                 RESULTS["download"] = vazao_em_Mbps #It's here when the tests finish for client
                 print(f'INFO - Resultados do cliente: {RESULTS}')
+                save_to_file(RESULTS)
 
             CLIENT["control_channel"].send(
                 f'RESULTADO DO TESTE DE UPLOAD: \n A vazão calculada é de {vazao_em_Mbps} Mb/s')
@@ -282,6 +289,7 @@ async def server_receives_offer(data):
                 if msg is not None:
                     RESULTS["upload"] = msg["value"] #It's here when the tests finish for server
                     print(f'INFO - Resultados do servidor: {RESULTS}')
+                    save_to_file(RESULTS)
 
         if received_channel.label == LATENCY:
             channels[LATENCY] = received_channel
@@ -317,7 +325,7 @@ async def server_receives_offer(data):
                     SERVER["t1_throughput"] = time.time()
                     tempo = SERVER["t1_throughput"] - SERVER["t0_throughput"]
                     vazao_em_bytes = ((SERVER["qtd_packages"]-1) * 1400) / tempo #1400 é o tamanho do pacote
-                    vazao_em_MB = vazao_em_bytes / 10**6
+                    vazao_em_MB = round(vazao_em_bytes / 10**6, 2)
                     vazao_em_Mbps = vazao_em_MB * 8
 
                     if ROLE == 'server':
@@ -364,6 +372,19 @@ def try_parse_json(message):
         return json.loads(message)
     except (json.JSONDecodeError, TypeError):
         return None
+
+def save_to_file(results):
+    results_data_frame = pd.DataFrame([results])
+    results_data_frame = results_data_frame.rename(columns={
+        "latency": "latency (ms)",
+        "upload": "upload (Mbps)",
+        "download": "download (Mbps)",
+    })
+    if DEBUG:
+        print(f'DataFrame: {results_data_frame}')
+    file_exists = os.path.exists('results.csv')
+    results_data_frame.to_csv("results.csv", mode='a', header=not file_exists,index=False)
+
 
 async def calculate_throughput(throughput_channel):
     try:

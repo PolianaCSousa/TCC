@@ -1,0 +1,9 @@
+role,sid,latency (ms),upload (Mbps),download (Mbps)
+client,K6HKbf3ZCKW-FRq4AAAN,0.7235,24.16,23.2
+server,lRdtpdjGUnNLaynEAAAP,0.7775,23.2,24.16
+client,6b6t6iOS-WA5Kl6BAAAT,1.2053,17.44,17.76
+server,hxLslcxzZOEzc5q8AAAR,0.9936,17.76,17.44
+client,Z7W8_fmUIMI0gT6wAAAV,0.6603,12.8,10.88
+server,xEN-cFaXr4MNVCCHAAAX,0.873,10.88,12.8
+client,SuvWyrVbU5xQxUoFAAAD,0.9997,15.76,6.72
+server,ndxak1i_9yboLCZoAAAB,0.9675,6.72,15.76
