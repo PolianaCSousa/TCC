@@ -1,6 +1,7 @@
 import socketio
 from aiohttp import web
 from typing import TypedDict
+import subprocess
 
 '''
 STATUS do peer:
@@ -113,4 +114,7 @@ def set_role_and_target(client, server):
 
 # Run the aiohttp server manually with a specific host and port
 if __name__ == "__main__":
+
+    subprocess.Popen(["C:\\Users\\Polia\\influxd.exe"])
+
     web.run_app(app, host="localhost", port=5000)
