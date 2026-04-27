@@ -1,0 +1,34 @@
+# --- label for channels ---
+CONTROL = "control"
+LATENCY = "latency"
+THROUGHPUT = "throughput"
+
+# --- flags for acks and end of tests ---
+END_LATENCY = "Fim latência"
+END_THROUGHPUT = "fim"
+UPLOAD_RECEIVED = "upload_received"
+LAT_ACK_ERROR = "Erro na latência. O pacote LAT_ACK não foi entregue."
+UPLOAD_ERROR = "Upload não foi recebido"
+END_TEST = "Teste finalizado"
+LAT = "LAT"
+LAT_ACK = "LAT-ACK"
+ACK = "ACK"
+LOADED_LATENCY = "loaded_latency"
+
+# --- throughput test size ---
+BYTES_THROUGHPUT_100KB = 100 * 10 ** 3
+BYTES_THROUGHPUT_1MB = 1 * 10 ** 6
+BYTES_THROUGHPUT_10MB = 10 * 10 ** 6
+BYTES_THROUGHPUT_100MB = 100 * 10 ** 6
+# menor vazão que eu espero que meus usuários tenham
+__MIN_THROUGHPUT_MbitPerSec = 1  ## 1 MbitPerSec - essa variavel é a velocidade contratada pelo usuário mais humilde
+MIN_THROUGHPUT_BytePerSec = (__MIN_THROUGHPUT_MbitPerSec / 8) * 10 ** 6  ## 8 MbitPerSec / 8 bits = 1 MBytePerSec - aqui como eu estou enviando Bytes no meu teste de vazão, eu preciso converter de bit pra Byte e multiplicar pela potência de 10 do MB
+
+# --- package size ---
+BYTES_PER_PACKAGE = 1400
+
+# --- timeouts ---
+_ACCEPTABLE_LATENCY_MS = 80
+LATENCY_TIMEOUT = 10 * (_ACCEPTABLE_LATENCY_MS / 1000)  # estou considerando que a latencia aceitável é de 80ms. Meu timeout vai esperar até 10 vezes isso.
+SHORT_TIMEOUT = 12 * (_ACCEPTABLE_LATENCY_MS / 1000)  # criei esse timeout pra esperar os acks - MOSTRAR EVERTHON
+
