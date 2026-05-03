@@ -85,20 +85,28 @@ async def client_receives_answer(data):
     await peer.setRemoteDescription(sdp)  # this is the moment the connection is stablished
 
 
-# region Client Make Offer
 # client runs this method to make his offer to peer server
 async def client_make_offer(target_name):
     @peer.on("icecandidate")
     def on_icecandidate(candidate):
         print("Client ICE candidate:", candidate)
 
+    _create_client_data_channels()
+    await _create_and_send_sdp_offer(target_name)
+    _register_client_control_channel_handlers()
+    _register_client_latency_channel_handlers()
+    _register_client_throughput_channel_handlers()
+
+
+# region Client methods
+def _create_client_data_channels():
     # all channels must be created before the connection stablishment - these channels are created on client peer
     state.client["control_channel"] = peer.createDataChannel(CONTROL)
-    state.client["throughput_channel"] = peer.createDataChannel(THROUGHPUT, maxPacketLifeTime=None, maxRetransmits=0,
-                                                          ordered=False)
+    state.client["throughput_channel"] = peer.createDataChannel(THROUGHPUT, maxPacketLifeTime=None, maxRetransmits=0,ordered=False)
     state.client["latency_channel"] = peer.createDataChannel(LATENCY)
 
-    # region Create SDP offer
+
+async def _create_and_send_sdp_offer(target_name):
     offer = await peer.createOffer()
     await peer.setLocalDescription(offer)
 
@@ -111,64 +119,12 @@ async def client_make_offer(target_name):
             "sdp": peer.localDescription.sdp
         }
     })
-    # endregion
 
+
+def _register_client_control_channel_handlers():
     @state.client["control_channel"].on("open")
-    async def control_task():
+    async def on_control_open():
         state.client["control_channel"].send("O teste de LATÊNCIA irá começar...")
-
-    @state.client["latency_channel"].on("open")
-    async def on_latency_channel():
-        state.events["latency_finished"].clear()
-        state.events["lat_ack_received"].clear()
-        asyncio.create_task(client_send_lat_package(state.client["latency_channel"]))
-        event_occured = await event_timeout(state.events["lat_ack_received"], LATENCY_TIMEOUT)
-        if event_occured:
-            logger.info("vou enviar o ack pro servidor")
-            asyncio.create_task(client_send_ack(state.client["latency_channel"]))
-            state.events["lat_ack_received"].clear()
-        else:
-            state.results["latency"] = None  # eu so mantenho a latência do cliente vazia - nesse caso, a latencia do servidor tambem vai ser none
-            # ja que o timeout estourou de ca, preciso avisar o outro par que deu errado pra ele nao ficar esperando atoa
-            # portanto, pra avisar ao servidor que eu nao recebi o lat-ack e portanto ele nao vai nem receber o ack, vou mandar uma mensagem de erro no canal de controle pra ele tratar de lá
-            state.client["control_channel"].send(LAT_ACK_ERROR)
-
-    @state.client["throughput_channel"].on("open")
-    async def on_throughput_channel():
-        event_occured = await event_timeout(state.events["latency_finished"],
-                                            LATENCY_TIMEOUT)  # nesse caso, mesmo se o timeout estourar, eu posso prosseguir com o teste de vazão
-        if event_occured:
-            logger.info("latência finalizada. Vazão vai começar")
-            state.client["control_channel"].send("O teste de VAZÃO irá começar...")
-        else:
-            state.client["control_channel"].send(
-                "O teste de VAZÃO irá começar, apesar do cliente não ter recebido o pacote de fim de latência do par servidor.")
-        asyncio.create_task(send_throughput_data(state.client["throughput_channel"], state.client["control_channel"], state.client,
-                                                 BYTES_THROUGHPUT_10MB))  # TESTE COM 10MB por enquanto
-
-        ## a task abaixo irá aguardar o evento upload_received ou upload_error
-        bytes_to_be_sent = BYTES_THROUGHPUT_10MB
-        asyncio.create_task(
-            send_ack_end_upload(state.client["control_channel"], bytes_to_be_sent / MIN_THROUGHPUT_BytePerSec))
-
-        ## a task abaixo irá aguardar o evento throughput_finished
-        asyncio.create_task(
-            calculate_throughput(state.role, state.client, state.events["throughput_finished"], bytes_to_be_sent / MIN_THROUGHPUT_BytePerSec))
-
-    @state.client["latency_channel"].on("message")
-    def on_latency_message(message):
-        state.client["t1_latency"] = time.time_ns()
-        state.events[
-            "lat_ack_received"].set()  # adicionei o set do evento depois de enviar o ack pra poder enviar o ack o mais rapido possivel de volta pro par servidor - CONFIRMAR COM EVERTHON
-        calc_latency_a_b = (state.client["t1_latency"] - state.client["t0_latency"]) / (10 ** 6)
-
-        if state.role == "client":
-            state.results[LATENCY] = calc_latency_a_b
-
-        logger.info("<<< recebi LAT-ACK")
-        logger.info("LATÊNCIA DO CLIENTE a=>b %s ms", calc_latency_a_b)
-        
-        # CLIENT["control_channel"].send(f'LATÊNCIA a=>b {calc_latency_a_b} ms')
 
     @state.client["control_channel"].on("message")
     async def on_control_message(message):
@@ -189,21 +145,91 @@ async def client_make_offer(target_name):
         #else:
             #print(f"[CONTROLE]\t {message}")
 
+
+def _register_client_latency_channel_handlers():
+    @state.client["latency_channel"].on("open")
+    async def on_latency_open():
+        state.events["latency_finished"].clear()
+        state.events["lat_ack_received"].clear()
+        asyncio.create_task(client_send_lat_package(state.client["latency_channel"]))
+        event_occured = await event_timeout(state.events["lat_ack_received"], LATENCY_TIMEOUT)
+        if event_occured:
+            logger.info("vou enviar o ack pro servidor")
+            asyncio.create_task(client_send_ack(state.client["latency_channel"]))
+            state.events["lat_ack_received"].clear()
+        else:
+            state.results["latency"] = None  
+            state.client["control_channel"].send(LAT_ACK_ERROR)
+    
+    @state.client["latency_channel"].on("message")
+    def on_latency_message(message):
+        state.client["t1_latency"] = time.time_ns()
+        state.events["lat_ack_received"].set()  # adicionei o set do evento depois de enviar o ack pra poder enviar o ack o mais rapido possivel de volta pro par servidor - CONFIRMAR COM EVERTHON
+        calc_latency_a_b = (state.client["t1_latency"] - state.client["t0_latency"]) / (10 ** 6)
+
+        if state.role == "client":
+            state.results[LATENCY] = calc_latency_a_b
+
+        logger.info("<<< recebi LAT-ACK")
+        logger.info("LATÊNCIA DO CLIENTE a=>b %s ms", calc_latency_a_b)
+      
+
+def _register_client_throughput_channel_handlers():
+    @state.client["throughput_channel"].on("open")
+    async def on_throughput_open():
+        event_occured = await event_timeout(state.events["latency_finished"],
+                                            LATENCY_TIMEOUT)  # nesse caso, mesmo se o timeout estourar, eu posso prosseguir com o teste de vazão
+        if event_occured:
+            logger.info("latência finalizada. Vazão vai começar")
+            state.client["control_channel"].send("O teste de VAZÃO irá começar...")
+        else:
+            state.client["control_channel"].send(
+                "O teste de VAZÃO irá começar, apesar do cliente não ter recebido o pacote de fim de latência do par servidor.")
+        asyncio.create_task(send_throughput_data(state.client["throughput_channel"], state.client["control_channel"], state.client,
+                                                 BYTES_THROUGHPUT_10MB))  # TESTE COM 10MB por enquanto
+
+        ## a task abaixo irá aguardar o evento upload_received ou upload_error
+        bytes_to_be_sent = BYTES_THROUGHPUT_10MB
+        asyncio.create_task(
+            send_ack_end_upload(state.client["control_channel"], bytes_to_be_sent / MIN_THROUGHPUT_BytePerSec))
+
+        ## a task abaixo irá aguardar o evento throughput_finished
+        asyncio.create_task(
+            calculate_throughput(state.role, state.client, state.events["throughput_finished"], bytes_to_be_sent / MIN_THROUGHPUT_BytePerSec))
+
     @state.client["throughput_channel"].on("message")
     def on_throughput_message(message):
         if state.client["qtd_packages"] == 0:
             state.client["t0_throughput"] = time.time()  # retorna o tempo em segundos
             # print(f'debug - tamanho do pacote recebido {len(message)}') #sys.getsizeof(package) retorna o tamanho do objeto Python na memória
         state.client["qtd_packages"] = state.client["qtd_packages"] + 1
-# endregion
-
+# endregion 
 
 # region Server Receives Offer
 @sio.on("offer")
 async def server_receives_offer(data):
     logger.debug("offer recebida no server_peer")
+    await _create_and_send_sdp_answer(data)
 
-    # region Cria resposta SDP
+    @peer.on("datachannel")
+    def on_datachannel(received_channel):
+        if received_channel.label == CONTROL:
+            state.server["channels"][CONTROL] = received_channel
+            _register_server_control_channel_handler()
+        elif received_channel.label == LATENCY:
+            state.server["channels"][LATENCY] = received_channel
+            _register_server_latency_channel_handler()
+        elif received_channel.label == THROUGHPUT:
+            state.server["channels"][THROUGHPUT] = received_channel
+            # TESTE SÓ PRA VER SE CORRIGE MESMO
+            state.server["qtd_total_bytes"] = BYTES_THROUGHPUT_10MB
+            # a task abaixo espera o envio dos dados terminar - throughput_finished
+            asyncio.create_task(calculate_throughput(state.role, state.server, state.events["throughput_finished"]))
+            _register_server_throughput_channel_handler()
+# endregion
+
+# region Server methods
+async def _create_and_send_sdp_answer(data):
     sdp = RTCSessionDescription(sdp=data["offer"]["sdp"], type=data["offer"]["type"])
     await peer.setRemoteDescription(sdp)
 
@@ -218,71 +244,60 @@ async def server_receives_offer(data):
             "sdp": peer.localDescription.sdp
         }
     })
-    # endregion
 
-    @peer.on("datachannel")
-    def on_datachannel(received_channel):
-        if (received_channel.label == CONTROL):
-            state.server["channels"][CONTROL] = received_channel
 
-            @received_channel.on("message")
-            async def on_control_message(message):
-                print(f'[CONTROLE] {message}')
-                msg = try_parse_json(message)
-                if message == END_THROUGHPUT:
-                    state.events["throughput_finished"].set()
-                if message == UPLOAD_RECEIVED:
-                    state.events["start_server_throughput"].set()
-                if message == UPLOAD_ERROR:
-                    state.events["upload_error"].set()
-                if message == LAT_ACK_ERROR:
-                    state.events["lat_ack_error"].set()
-                if msg is not None:
-                    state.results["upload"] = msg["value"]  # It's here when the tests finish for server
-                    save_to_file(state.results)
-                    state.events["upload_received"].set()  # aqui preciso tratar
-                    logger.info("Resultados do servidor: %s", state.results)
-                logger.debug("upload (json): %s", msg)
+def _register_server_control_channel_handler():
+    @state.server["channels"][CONTROL].on("message")
+    async def on_control_message(message):
+        print(f'[CONTROLE] {message}')
+        msg = try_parse_json(message)
+        if message == END_THROUGHPUT:
+            state.events["throughput_finished"].set()
+        if message == UPLOAD_RECEIVED:
+            state.events["start_server_throughput"].set()
+        if message == UPLOAD_ERROR:
+            state.events["upload_error"].set()
+        if message == LAT_ACK_ERROR:
+            state.events["lat_ack_error"].set()
+        if msg is not None:
+            state.results["upload"] = msg["value"]  # It's here when the tests finish for server
+            save_to_file(state.results)
+            state.events["upload_received"].set()  # aqui preciso tratar
+            logger.info("Resultados do servidor: %s", state.results)
+        logger.debug("upload (json): %s", msg)
 
-        if received_channel.label == LATENCY:
-            state.server["channels"][LATENCY] = received_channel
 
-            @received_channel.on("message")
-            def on_latency_message(message):
-                if message == LAT:
-                    state.events["ack_received"].clear()
-                    state.events["lat_ack_error"].clear()
-                    asyncio.create_task(server_send_lat_ack(received_channel))
-                    asyncio.create_task(handle_server_latency_timeout(state.server["channels"][CONTROL], LATENCY_TIMEOUT))
-                    logger.info("<<< recebi LAT")
-                else:  # se ACK for recebido com sucesso
-                    state.server["t1_latency"] = time.time_ns()
-                    state.events["ack_received"].set()
-                    calc_latency_b_a = (state.server["t1_latency"] - state.server["t0_latency"]) / (10 ** 6)
+def _register_server_latency_channel_handler():
+    @state.server["channels"][LATENCY].on("message")
+    def on_latency_message(message):
+        if message == LAT:
+            state.events["ack_received"].clear()
+            state.events["lat_ack_error"].clear()
+            asyncio.create_task(server_send_lat_ack(state.server["channels"][LATENCY]))
+            asyncio.create_task(handle_server_latency_timeout(state.server["channels"][CONTROL], LATENCY_TIMEOUT))
+            logger.info("<<< recebi LAT")
+        else:  # se ACK for recebido com sucesso
+            state.server["t1_latency"] = time.time_ns()
+            state.events["ack_received"].set()
+            calc_latency_b_a = (state.server["t1_latency"] - state.server["t0_latency"]) / (10 ** 6)
 
-                    if state.role == 'server':
-                        state.results[LATENCY] = calc_latency_b_a
+            if state.role == 'server':
+                state.results[LATENCY] = calc_latency_b_a
 
-                    logger.info("<<< recebi ACK")
-                    logger.info("LATÊNCIA DO SERVIDOR b=>a %s ms", calc_latency_b_a)
+            logger.info("<<< recebi ACK")
+            logger.info("LATÊNCIA DO SERVIDOR b=>a %s ms", calc_latency_b_a)
 
-                    # SERVER["channels"][CONTROL].send(f'LATÊNCIA b=>a {calc_latency_b_a} ms')
-                    state.server["channels"][CONTROL].send(END_LATENCY)
+            # SERVER["channels"][CONTROL].send(f'LATÊNCIA b=>a {calc_latency_b_a} ms')
+            state.server["channels"][CONTROL].send(END_LATENCY)
 
-        if received_channel.label == THROUGHPUT:
-            state.server["channels"][THROUGHPUT] = received_channel
-            # TESTE SÓ PRA VER SE CORRIGE MESMO
-            state.server["qtd_total_bytes"] = BYTES_THROUGHPUT_10MB
-            # a task abaixo espera o envio dos dados terminar - throughput_finished
-            asyncio.create_task(calculate_throughput(state.role, state.server, state.events["throughput_finished"]))
 
-            @received_channel.on("message")
-            def on_throughput_message(message):
-                if state.server["qtd_packages"] == 0:
-                    state.server["t0_throughput"] = time.time()  # retorna o tempo em segundos
-                state.server["qtd_packages"] = state.server["qtd_packages"] + 1
+def _register_server_throughput_channel_handler():
+    @state.server["channels"][THROUGHPUT].on("message")
+    def on_throughput_message(message):
+        if state.server["qtd_packages"] == 0:
+            state.server["t0_throughput"] = time.time()  # retorna o tempo em segundos
+        state.server["qtd_packages"] = state.server["qtd_packages"] + 1
 # endregion
-
 
 async def send_throughput_data(throughput_channel, control_channel, PEER, test_size):
     try:
