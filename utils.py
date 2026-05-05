@@ -1,7 +1,6 @@
 import asyncio
 import json
-
-
+from state import state
 
 def try_parse_json(message):
     try:
@@ -38,3 +37,11 @@ async def events_timeout(events: dict[str, asyncio.Event], timeout: float | None
                 p.cancel()  # confirmar na documentação se o cancel mata a task imediatamente ou se ela demora um pouco e continua rodando até que ela perceba que foi cancelada
 
             return name
+
+
+def update_peers_list(this, role, server_peers): 
+    for peer in server_peers:
+        if peer["sid"] == this["target"]:
+            peer["role"] = role
+            peer["status"] = "OCCUPIED"
+            peer["target"] = state.sid

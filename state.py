@@ -46,3 +46,5 @@ class PeerState:
             "latency_finished": asyncio.Event(),
             "throughput_finished": asyncio.Event()
         }
+
+state = PeerState()

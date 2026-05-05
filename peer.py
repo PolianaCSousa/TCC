@@ -2,13 +2,12 @@ from aiortc import RTCPeerConnection, RTCSessionDescription
 import asyncio
 import socketio
 import time
-import json
 import logging
 import colorlog
 from custom_types import Client, Server, Peer, Results
-from utils import try_parse_json, event_timeout, events_timeout
+from utils import try_parse_json, event_timeout, update_peers_list
 from storage import save_to_file
-from state import PeerState
+from state import state
 from constants import (
     CONTROL, LATENCY, THROUGHPUT,
     END_LATENCY, END_THROUGHPUT, END_TEST,
@@ -18,13 +17,22 @@ from constants import (
     MIN_THROUGHPUT_BytePerSec,
     BYTES_PER_PACKAGE, BYTES_THROUGHPUT_10MB,
 )
+from experiments.latency import(
+    server_send_lat_ack,
+    client_send_lat_package,
+    client_send_ack,
+    handle_server_latency_timeout)
+from experiments.throughput import(
+    send_throughput_data,
+    calculate_throughput,
+    send_ack_end_upload
+)
 
 logger = logging.getLogger(__name__)
 
 # creat a Socket.IO client and a peer for WebRTC connection
 sio = socketio.AsyncClient()
 peer = RTCPeerConnection()
-state = PeerState()
 server_peers: list[Peer] = []
 
 
@@ -68,21 +76,13 @@ async def start_test(data):
     logger.info("Sou o %s", state.role)
 
     if state.role == "client":
-        update_peers_list(data["peer"], 'server')
+        update_peers_list(data["peer"], 'server', server_peers)
         logger.debug("lista local atualizada: %s", server_peers)
         target = data["peer"]["target"]
         await client_make_offer(target_name=target)
     else:
-        update_peers_list(data["peer"], 'client')
+        update_peers_list(data["peer"], 'client', server_peers)
         logger.debug("lista local atualizada: %s", server_peers)
-
-
-# this method receives the answer from the server peer.
-@sio.on("answer")
-async def client_receives_answer(data):
-    logger.info("answer do par servidor recebida no cliente")
-    sdp = RTCSessionDescription(sdp=data["answer"]["sdp"], type=data["answer"]["type"])
-    await peer.setRemoteDescription(sdp)  # this is the moment the connection is stablished
 
 
 # client runs this method to make his offer to peer server
@@ -96,6 +96,14 @@ async def client_make_offer(target_name):
     _register_client_control_channel_handlers()
     _register_client_latency_channel_handlers()
     _register_client_throughput_channel_handlers()
+
+
+# this method receives the answer from the server peer.
+@sio.on("answer")
+async def client_receives_answer(data):
+    logger.info("answer do par servidor recebida no cliente")
+    sdp = RTCSessionDescription(sdp=data["answer"]["sdp"], type=data["answer"]["type"])
+    await peer.setRemoteDescription(sdp)  # this is the moment the connection is stablished
 
 
 # region Client methods
@@ -299,137 +307,6 @@ def _register_server_throughput_channel_handler():
         state.server["qtd_packages"] = state.server["qtd_packages"] + 1
 # endregion
 
-async def send_throughput_data(throughput_channel, control_channel, PEER, test_size):
-    try:
-        package = bytes(BYTES_PER_PACKAGE)
-        # as duas linhas a seguir podem virar so uma
-        # tam_total_dados = BYTES_THROUGHPUT_10MB  # enviarei no total 10MB = 10.000.000 Bytes
-        PEER["qtd_total_bytes"] = test_size
-        qtd_pacotes = test_size // len(package)
-        tam_pacote = len(package)
-        logger.debug("o envio dos pacotes vai começar agora. Vou enviar %s pacotes de tamanho %s", qtd_pacotes, tam_pacote)
-        logger.debug("ICE: %s", peer.iceConnectionState)
-        logger.debug("DTLS: %s", peer.connectionState)
-        for i in range(0, qtd_pacotes):
-            throughput_channel.send(package)
-        # throughput_channel.send(END_THROUGHPUT)
-        control_channel.send(END_THROUGHPUT)
-    except Exception as e:
-        print(f'Erro no envio dos dados da vazão: {e}')
-
-
-async def calculate_throughput(role, PEER, throughput_finished, timeout=5):
-    total_bytes_esperada = PEER[
-        "qtd_total_bytes"]  ## ex.: teria o BYTES_THROUGHPUT_10MB como o valor dessa chave tam_bytes_test
-    timeout = total_bytes_esperada / MIN_THROUGHPUT_BytePerSec
-    response = await event_timeout(throughput_finished, timeout)
-    if response:
-        PEER["t1_throughput"] = time.time()
-        tempo = PEER["t1_throughput"] - PEER["t0_throughput"]
-        vazao_em_bytes = ((PEER["qtd_packages"] - 1) * BYTES_PER_PACKAGE) / tempo  # 1400 é o tamanho do pacote
-        vazao_em_MB = round(vazao_em_bytes / 10 ** 6, 2)
-        vazao_em_Mbps = vazao_em_MB * 8
-        if role == "server":
-            state.results["download"] = vazao_em_Mbps
-            # SERVER["channels"][CONTROL].send(f'RESULTADO DO TESTE DE UPLOAD: \n A vazão calculada é de {vazao_em_Mbps} Mb/s')
-            state.server["channels"][CONTROL].send(json.dumps({
-                "msg": "upload",
-                "value": vazao_em_Mbps
-            }))
-            logger.info("RESULTADO DO TESTE DE DOWNLOAD: \n A vazão calculada é de %s Mb/s", vazao_em_Mbps)
-            response = await event_timeout(state.events["start_server_throughput"], SHORT_TIMEOUT)
-            if response:
-                state.server["channels"][CONTROL].send(
-                    "Não recebi o ACK do resultado do upload do cliente. Vou iniciar o teste mesmo assim.")
-            else:
-                state.server["channels"][CONTROL].send("Recebi ACK do upload do cliente. Vou iniciar o teste agora.")
-            asyncio.create_task(send_throughput_data(state.server["channels"][THROUGHPUT], state.server["channels"][CONTROL], state.server,
-                                                     BYTES_THROUGHPUT_10MB))  # TESTE COM 10MB por enquanto
-            ## a task abaixo irá aguardar o evento upload_received ou upload_error
-            bytes_to_be_sent = BYTES_THROUGHPUT_10MB
-            asyncio.create_task(send_end_test(state.server["channels"][CONTROL], bytes_to_be_sent / MIN_THROUGHPUT_BytePerSec))
-        else:
-            logger.debug("sou cliente e ja tenho o download: %s Mbps", vazao_em_Mbps)
-            state.results["download"] = vazao_em_Mbps  # It's here when the tests finish for client
-            logger.info("Resultados do cliente: %s", state.results)
-            save_to_file(state.results)
-            state.client["control_channel"].send(
-                f'RESULTADO DO TESTE DE UPLOAD: \n A vazão calculada é de {vazao_em_Mbps} Mb/s')
-            state.client["control_channel"].send(json.dumps({
-                "msg": "upload",
-                "value": vazao_em_Mbps
-            }))
-            logger.info("RESULTADO DO TESTE DE DOWNLOAD: \n A vazão calculada é de %s Mb/s", vazao_em_Mbps)
-    else:
-        # meu download é none e o do outro par é none o upload
-        state.results["download"] = None
-        if role == "server":
-            state.server["channels"][CONTROL].send(UPLOAD_ERROR)
-        else:
-            state.client["control_channel"].send(UPLOAD_ERROR)
-
-
-# region Calculate and send latency package
-async def server_send_lat_ack(latency_channel):
-    state.server["t0_latency"] = time.time_ns()
-    latency_channel.send(LAT_ACK)
-    logger.info(">>> enviei LAT_ACK")
-# endregion
-
-
-async def client_send_lat_package(latency_channel):
-    state.client["t0_latency"] = time.time_ns()
-    latency_channel.send(LAT)
-    logger.info(">>> enviei LAT")
-
-
-async def client_send_ack(latency_channel):
-    latency_channel.send(ACK)
-    logger.info(">>> enviei ACK")
-
-
-def update_peers_list(this, role):
-    for peer in server_peers:
-        if peer["sid"] == this["target"]:
-            peer["role"] = role
-            peer["status"] = "OCCUPIED"
-            peer["target"] = state.sid
-
-
-async def send_ack_end_upload(control_channel, timeout):
-    response = await events_timeout({"upload_received": state.events["upload_received"],
-                                     "upload_error": state.events["upload_error"]
-                                     }, timeout)
-    if response == "upload_received":
-        control_channel.send(UPLOAD_RECEIVED)
-    else:
-        if state.results["upload"] is not None:
-            state.results["upload"] = None
-        if state.role == "client":
-            control_channel.send(UPLOAD_RECEIVED)  # vou enviar mesmo que tenha dado errado pra que o teste continue
-        else:
-            control_channel.send(UPLOAD_ERROR)
-
-
-async def send_end_test(control_channel, timeout):
-    response = await events_timeout({"upload_received": state.events["upload_received"],
-                                     "upload_error": state.events["upload_error"]
-                                     }, timeout)
-    if response == "upload_error" and state.results["upload"] is not None:
-        state.results["upload"] = None
-    control_channel.send(END_TEST)  # somente aqui eu envio o fim do teste, quando da certo ou quando da errado
-
-
-async def handle_server_latency_timeout(control_channel, timeout):
-    # event_ocurred = await event_timeout
-    response = await events_timeout({"ack_received": state.events["ack_received"],
-                                     "lat_ack_error": state.events["lat_ack_error"]
-                                     }, timeout)
-    if response != "ack_received":
-        if not state.results[LATENCY]:
-            # state.results[LATENCY] = None
-            control_channel.send(END_LATENCY)
-
 
 # Função principal para iniciar o cliente e conectar
 async def main():
@@ -451,6 +328,7 @@ async def main():
     logging.basicConfig(level=logging.WARNING, handlers=[handler])
     # libera só o meu módulo
     logger.setLevel(logging.INFO)
+    logging.getLogger("experiments").setLevel(logging.INFO)
 
     # Conectando ao servidor
     await sio.connect('http://localhost:5000')
