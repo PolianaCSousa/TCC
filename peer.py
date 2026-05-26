@@ -12,10 +12,9 @@ from constants import (
     CONTROL, LATENCY, THROUGHPUT,
     END_LATENCY, END_THROUGHPUT, END_TEST,
     UPLOAD_RECEIVED, UPLOAD_ERROR, LAT_ACK_ERROR,
-    LAT, LAT_ACK, ACK,
-    LATENCY_TIMEOUT, SHORT_TIMEOUT,
-    MIN_THROUGHPUT_BytePerSec,
-    BYTES_PER_PACKAGE, BYTES_THROUGHPUT_10MB,
+    LAT, LATENCY_TIMEOUT, 
+    MIN_THROUGHPUT_BytePerSec, BYTES_THROUGHPUT_10MB, START_THROUGHPUT,
+    BYTES_THROUGHPUT_100KB, BYTES_THROUGHPUT_100MB, BYTES_THROUGHPUT_1MB
 )
 from experiments.latency import(
     server_send_lat_ack,
@@ -146,7 +145,7 @@ def _register_client_control_channel_handlers():
         elif message == UPLOAD_ERROR:
             state.events["upload_error"].set()
         elif message == END_TEST:
-            logger.info("primeiro teste finalizado")
+            logger.info("------ TESTE FINALIZADO ------")
         elif msg is not None:
             state.results["upload"] = msg["value"]
             state.events["upload_received"].set()
@@ -189,21 +188,18 @@ def _register_client_throughput_channel_handlers():
                                             LATENCY_TIMEOUT)  # nesse caso, mesmo se o timeout estourar, eu posso prosseguir com o teste de vazão
         if event_occured:
             logger.info("latência finalizada. Vazão vai começar")
-            state.client["control_channel"].send("O teste de VAZÃO irá começar...")
+            state.client["control_channel"].send(START_THROUGHPUT)
         else:
-            state.client["control_channel"].send(
-                "O teste de VAZÃO irá começar, apesar do cliente não ter recebido o pacote de fim de latência do par servidor.")
-        asyncio.create_task(send_throughput_data(state.client["throughput_channel"], state.client["control_channel"], state.client,
-                                                 BYTES_THROUGHPUT_10MB))  # TESTE COM 10MB por enquanto
+            #O teste de VAZÃO irá começar, apesar do cliente não ter recebido o pacote de fim de latência do par servidor
+            state.client["control_channel"].send(START_THROUGHPUT)
+            
+        #calculate_client_throughput(BYTES_THROUGHPUT_100KB)
 
-        ## a task abaixo irá aguardar o evento upload_received ou upload_error
-        bytes_to_be_sent = BYTES_THROUGHPUT_10MB
-        asyncio.create_task(
-            send_ack_end_upload(state.client["control_channel"], bytes_to_be_sent / MIN_THROUGHPUT_BytePerSec))
+        #calculate_client_throughput(BYTES_THROUGHPUT_1MB)
 
-        ## a task abaixo irá aguardar o evento throughput_finished
-        asyncio.create_task(
-            calculate_throughput(state.role, state.client, state.events["throughput_finished"], bytes_to_be_sent / MIN_THROUGHPUT_BytePerSec))
+        calculate_client_throughput(BYTES_THROUGHPUT_10MB)
+
+        #calculate_client_throughput(BYTES_THROUGHPUT_100MB)
 
     @state.client["throughput_channel"].on("message")
     def on_throughput_message(message):
@@ -211,6 +207,28 @@ def _register_client_throughput_channel_handlers():
             state.client["t0_throughput"] = time.time()  # retorna o tempo em segundos
             # print(f'debug - tamanho do pacote recebido {len(message)}') #sys.getsizeof(package) retorna o tamanho do objeto Python na memória
         state.client["qtd_packages"] = state.client["qtd_packages"] + 1
+
+
+def calculate_client_throughput(test_size):
+    calculate_client_upload(test_size)
+    calculate_client_download(test_size)
+
+
+def calculate_client_upload(test_size):
+    asyncio.create_task(send_throughput_data(state.client["throughput_channel"], state.client["control_channel"], state.client,
+                                                test_size))
+
+    ## a task abaixo irá aguardar o evento upload_received ou upload_error
+    asyncio.create_task(
+        send_ack_end_upload(state.client["control_channel"], test_size / MIN_THROUGHPUT_BytePerSec))
+
+
+def calculate_client_download(test_size):
+    ## a task abaixo irá aguardar o evento throughput_finished
+    asyncio.create_task(
+        calculate_throughput(state.role, state.client, state.events["throughput_finished"], test_size / MIN_THROUGHPUT_BytePerSec))
+        
+
 # endregion 
 
 # region Server Receives Offer
@@ -229,10 +247,6 @@ async def server_receives_offer(data):
             _register_server_latency_channel_handler()
         elif received_channel.label == THROUGHPUT:
             state.server["channels"][THROUGHPUT] = received_channel
-            # TESTE SÓ PRA VER SE CORRIGE MESMO
-            state.server["qtd_total_bytes"] = BYTES_THROUGHPUT_10MB
-            # a task abaixo espera o envio dos dados terminar - throughput_finished
-            asyncio.create_task(calculate_throughput(state.role, state.server, state.events["throughput_finished"]))
             _register_server_throughput_channel_handler()
 # endregion
 
@@ -259,6 +273,8 @@ def _register_server_control_channel_handler():
     async def on_control_message(message):
         print(f'[CONTROLE] {message}')
         msg = try_parse_json(message)
+        if message == START_THROUGHPUT: #pode ser que essa mensagem nao chegue, e aí seria um problema, mas o tratamento seria feito no canal webRTC
+            asyncio.create_task(_calculate_server_download());
         if message == END_THROUGHPUT:
             state.events["throughput_finished"].set()
         if message == UPLOAD_RECEIVED:
@@ -305,7 +321,18 @@ def _register_server_throughput_channel_handler():
         if state.server["qtd_packages"] == 0:
             state.server["t0_throughput"] = time.time()  # retorna o tempo em segundos
         state.server["qtd_packages"] = state.server["qtd_packages"] + 1
+
+async def _calculate_server_download():
+    await _calculate_download(BYTES_THROUGHPUT_10MB)
+
+async def _calculate_download(test_size):
+    state.server["qtd_total_bytes"] = test_size
+    # a task abaixo espera o envio dos dados (do cliente) terminar - throughput_finished
+    await calculate_throughput(state.role, state.server, state.events["throughput_finished"])
+
 # endregion
+
+
 
 
 # Função principal para iniciar o cliente e conectar

@@ -5,6 +5,7 @@ THROUGHPUT = "throughput"
 
 # --- flags for acks and end of tests ---
 END_LATENCY = "Fim latência"
+START_THROUGHPUT = "Os testes de vazão irão começar"
 END_THROUGHPUT = "fim"
 UPLOAD_RECEIVED = "upload_received"
 LAT_ACK_ERROR = "Erro na latência. O pacote LAT_ACK não foi entregue."

@@ -44,7 +44,7 @@ class PeerState:
             "upload_received": asyncio.Event(),
             "start_server_throughput": asyncio.Event(),
             "latency_finished": asyncio.Event(),
-            "throughput_finished": asyncio.Event()
+            "throughput_finished": asyncio.Event(),
         }
 
 state = PeerState()
