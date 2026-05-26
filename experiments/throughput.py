@@ -50,23 +50,14 @@ async def calculate_throughput(role, PEER, throughput_finished, timeout=5):
         vazao_em_Mbps = vazao_em_MB * 8
         if role == "server":
             state.results["download"] = vazao_em_Mbps
-            # SERVER["channels"][CONTROL].send(f'RESULTADO DO TESTE DE UPLOAD: \n A vazão calculada é de {vazao_em_Mbps} Mb/s')
             state.server["channels"][CONTROL].send(json.dumps({
                 "msg": "upload",
                 "value": vazao_em_Mbps
             }))
             logger.info("RESULTADO DO TESTE DE DOWNLOAD: \n A vazão calculada é de %s Mb/s", vazao_em_Mbps)
-            response = await event_timeout(state.events["start_server_throughput"], SHORT_TIMEOUT)
-            if response:
-                state.server["channels"][CONTROL].send(
-                    "Não recebi o ACK do resultado do upload do cliente. Vou iniciar o teste mesmo assim.")
-            else:
-                state.server["channels"][CONTROL].send("Recebi ACK do upload do cliente. Vou iniciar o teste agora.")
-            asyncio.create_task(send_throughput_data(state.server["channels"][THROUGHPUT], state.server["channels"][CONTROL], state.server,
-                                                     BYTES_THROUGHPUT_10MB))  # TESTE COM 10MB por enquanto
-            ## a task abaixo irá aguardar o evento upload_received ou upload_error
-            bytes_to_be_sent = BYTES_THROUGHPUT_10MB
-            asyncio.create_task(send_end_test(state.server["channels"][CONTROL], bytes_to_be_sent / MIN_THROUGHPUT_BytePerSec))
+
+            await start_server_upload_timeout()
+            calculate_server_upload(state.server["qtd_total_bytes"])
         else:
             logger.debug("sou cliente e ja tenho o download: %s Mbps", vazao_em_Mbps)
             state.results["download"] = vazao_em_Mbps  # It's here when the tests finish for client
@@ -86,6 +77,21 @@ async def calculate_throughput(role, PEER, throughput_finished, timeout=5):
             state.server["channels"][CONTROL].send(UPLOAD_ERROR)
         else:
             state.client["control_channel"].send(UPLOAD_ERROR)
+
+def calculate_server_upload(test_size):
+    asyncio.create_task(send_throughput_data(state.server["channels"][THROUGHPUT], state.server["channels"][CONTROL], state.server,
+                                                     test_size))  # TESTE COM 10MB por enquanto
+            ## a task abaixo irá aguardar o evento upload_received ou upload_error
+    asyncio.create_task(send_end_test(state.server["channels"][CONTROL], test_size / MIN_THROUGHPUT_BytePerSec))
+
+
+async def start_server_upload_timeout():
+    response = await event_timeout(state.events["start_server_upload"], SHORT_TIMEOUT)
+    if response:
+        state.server["channels"][CONTROL].send(
+                    "Não recebi o ACK do resultado do upload do cliente. Vou iniciar o teste mesmo assim.")
+    else:
+        state.server["channels"][CONTROL].send("Recebi ACK do upload do cliente. Vou iniciar o teste agora.")
 
 
 async def send_ack_end_upload(control_channel, timeout):

@@ -42,7 +42,7 @@ class PeerState:
             "lat_ack_error": asyncio.Event(),
             "upload_error": asyncio.Event(),
             "upload_received": asyncio.Event(),
-            "start_server_throughput": asyncio.Event(),
+            "start_server_upload": asyncio.Event(),
             "latency_finished": asyncio.Event(),
             "throughput_finished": asyncio.Event(),
         }

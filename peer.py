@@ -194,11 +194,8 @@ def _register_client_throughput_channel_handlers():
             state.client["control_channel"].send(START_THROUGHPUT)
             
         #calculate_client_throughput(BYTES_THROUGHPUT_100KB)
-
-        #calculate_client_throughput(BYTES_THROUGHPUT_1MB)
-
+        calculate_client_throughput(BYTES_THROUGHPUT_1MB)
         calculate_client_throughput(BYTES_THROUGHPUT_10MB)
-
         #calculate_client_throughput(BYTES_THROUGHPUT_100MB)
 
     @state.client["throughput_channel"].on("message")
@@ -278,7 +275,7 @@ def _register_server_control_channel_handler():
         if message == END_THROUGHPUT:
             state.events["throughput_finished"].set()
         if message == UPLOAD_RECEIVED:
-            state.events["start_server_throughput"].set()
+            state.events["start_server_upload"].set()
         if message == UPLOAD_ERROR:
             state.events["upload_error"].set()
         if message == LAT_ACK_ERROR:
@@ -322,8 +319,12 @@ def _register_server_throughput_channel_handler():
             state.server["t0_throughput"] = time.time()  # retorna o tempo em segundos
         state.server["qtd_packages"] = state.server["qtd_packages"] + 1
 
+
 async def _calculate_server_download():
+    #await _calculate_download(BYTES_THROUGHPUT_100KB)
+    await _calculate_download(BYTES_THROUGHPUT_1MB)
     await _calculate_download(BYTES_THROUGHPUT_10MB)
+    #await _calculate_download(BYTES_THROUGHPUT_100MB)
 
 async def _calculate_download(test_size):
     state.server["qtd_total_bytes"] = test_size
