@@ -25,6 +25,7 @@ async def send_throughput_data(throughput_channel, control_channel, PEER, test_s
         # as duas linhas a seguir podem virar so uma
         # tam_total_dados = BYTES_THROUGHPUT_10MB  # enviarei no total 10MB = 10.000.000 Bytes
         PEER["qtd_total_bytes"] = test_size
+        PEER["qtd_packages"] = 0
         qtd_pacotes = test_size // len(package)
         tam_pacote = len(package)
         logger.debug("o envio dos pacotes vai começar agora. Vou enviar %s pacotes de tamanho %s", qtd_pacotes, tam_pacote)
@@ -50,26 +51,35 @@ async def calculate_throughput(role, PEER, throughput_finished, timeout=5):
         vazao_em_Mbps = vazao_em_MB * 8
         if role == "server":
             state.results["download"] = vazao_em_Mbps
+            state.results["server.download"] = vazao_em_Mbps
+            state.results["test_size"] = total_bytes_esperada
+            # state.server["channels"][CONTROL].send(
+            #     f'RESULTADO DO TESTE DE client.UPLOAD: \n A vazão calculada é de {vazao_em_Mbps} Mb/s')
             state.server["channels"][CONTROL].send(json.dumps({
                 "msg": "upload",
-                "value": vazao_em_Mbps
+                "value": vazao_em_Mbps,
+                "test_size": total_bytes_esperada
             }))
-            logger.info("RESULTADO DO TESTE DE DOWNLOAD: \n A vazão calculada é de %s Mb/s", vazao_em_Mbps)
+            logger.info("RESULTADO DO TESTE DE server.DOWNLOAD: \n A vazão calculada é de %s Mb/s para o tamanho de %s Mbytes", vazao_em_Mbps, int(PEER["qtd_total_bytes"])//10**6)
+            
 
             await start_server_upload_timeout()
-            calculate_server_upload(state.server["qtd_total_bytes"])
+            await calculate_server_upload(state.server["qtd_total_bytes"])
         else:
             logger.debug("sou cliente e ja tenho o download: %s Mbps", vazao_em_Mbps)
             state.results["download"] = vazao_em_Mbps  # It's here when the tests finish for client
-            logger.info("Resultados do cliente: %s", state.results)
+            state.results["client.download"] = vazao_em_Mbps
+            state.results["test_size"] = total_bytes_esperada
+            logger.info("Resultados do cliente (state LOCAL): %s", state.results)
             save_to_file(state.results)
-            state.client["control_channel"].send(
-                f'RESULTADO DO TESTE DE UPLOAD: \n A vazão calculada é de {vazao_em_Mbps} Mb/s')
+            # state.client["control_channel"].send(
+            #     f'RESULTADO DO TESTE DE server.UPLOAD: \n A vazão calculada é de {vazao_em_Mbps} Mb/s')
             state.client["control_channel"].send(json.dumps({
                 "msg": "upload",
-                "value": vazao_em_Mbps
+                "value": vazao_em_Mbps,
+                "test_size": total_bytes_esperada
             }))
-            logger.info("RESULTADO DO TESTE DE DOWNLOAD: \n A vazão calculada é de %s Mb/s", vazao_em_Mbps)
+            logger.info("RESULTADO DO TESTE DE client.DOWNLOAD: \n A vazão calculada é de %s Mb/s para o tamanho de %s Mbytes", vazao_em_Mbps, int(PEER["qtd_total_bytes"])//10**6)
     else:
         # meu download é none e o do outro par é none o upload
         state.results["download"] = None
@@ -78,11 +88,11 @@ async def calculate_throughput(role, PEER, throughput_finished, timeout=5):
         else:
             state.client["control_channel"].send(UPLOAD_ERROR)
 
-def calculate_server_upload(test_size):
-    asyncio.create_task(send_throughput_data(state.server["channels"][THROUGHPUT], state.server["channels"][CONTROL], state.server,
-                                                     test_size))  # TESTE COM 10MB por enquanto
+async def calculate_server_upload(test_size):
+    await send_throughput_data(state.server["channels"][THROUGHPUT], state.server["channels"][CONTROL], state.server,
+                                                     test_size)  # TESTE COM 10MB por enquanto
             ## a task abaixo irá aguardar o evento upload_received ou upload_error
-    asyncio.create_task(send_end_test(state.server["channels"][CONTROL], test_size / MIN_THROUGHPUT_BytePerSec))
+    await send_end_test(state.server["channels"][CONTROL], test_size / MIN_THROUGHPUT_BytePerSec)
 
 
 async def start_server_upload_timeout():
@@ -116,3 +126,8 @@ async def send_end_test(control_channel, timeout):
     if response == "upload_error" and state.results["upload"] is not None:
         state.results["upload"] = None
     control_channel.send(END_TEST)  # somente aqui eu envio o fim do teste, quando da certo ou quando da errado
+
+
+
+# alguma das mensagens (tem alguma) de fim que estou mandando, eu nao estou mandando assim que termina o teste
+# de upload. Estou mandando quando termina todos os testes de vazão

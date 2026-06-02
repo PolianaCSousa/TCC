@@ -33,7 +33,8 @@ class PeerState:
             "sid": None,
             "latency": None,
             "upload": None,
-            "download": None
+            "download": None,
+            "test_size": None
         }
 
         self.events = {
@@ -45,6 +46,22 @@ class PeerState:
             "start_server_upload": asyncio.Event(),
             "latency_finished": asyncio.Event(),
             "throughput_finished": asyncio.Event(),
+            "test_complete": asyncio.Event(),
         }
+    
+    def reset_for_test(self):
+        self.results["upload"] = None
+        self.results["download"] = None
+        self.results["test_size"] = None
+        
+
+        self.events["lat_ack_received"].clear()
+        self.events["ack_received"].clear()
+        self.events["upload_received"].clear()
+        self.events["start_server_upload"].clear()
+        self.events["throughput_finished"].clear()
+        self.events["test_complete"].clear()
+        self.events["upload_error"].clear()
+        
 
 state = PeerState()

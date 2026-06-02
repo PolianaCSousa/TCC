@@ -136,7 +136,7 @@ def _register_client_control_channel_handlers():
     @state.client["control_channel"].on("message")
     async def on_control_message(message):
         msg = try_parse_json(message)
-        logger.debug("upload (json): %s", msg)
+        logger.info("received (json): %s", msg)
         if message == END_LATENCY:
             logger.info("cliente recebeu END_LATENCY")
             state.events["latency_finished"].set()
@@ -146,8 +146,11 @@ def _register_client_control_channel_handlers():
             state.events["upload_error"].set()
         elif message == END_TEST:
             logger.info("------ TESTE FINALIZADO ------")
+            state.events["test_complete"].set()
         elif msg is not None:
             state.results["upload"] = msg["value"]
+            state.results["client.upload"] = msg["value"]
+            state.results["test_size"] = msg["test_size"]
             state.events["upload_received"].set()
         #else:
             #print(f"[CONTROLE]\t {message}")
@@ -193,10 +196,14 @@ def _register_client_throughput_channel_handlers():
             #O teste de VAZÃO irá começar, apesar do cliente não ter recebido o pacote de fim de latência do par servidor
             state.client["control_channel"].send(START_THROUGHPUT)
             
-        #calculate_client_throughput(BYTES_THROUGHPUT_100KB)
-        calculate_client_throughput(BYTES_THROUGHPUT_1MB)
-        calculate_client_throughput(BYTES_THROUGHPUT_10MB)
-        #calculate_client_throughput(BYTES_THROUGHPUT_100MB)
+        await calculate_client_throughput(BYTES_THROUGHPUT_100KB)
+        await event_timeout(state.events["test_complete"], BYTES_THROUGHPUT_100KB / MIN_THROUGHPUT_BytePerSec)
+        await calculate_client_throughput(BYTES_THROUGHPUT_1MB)
+        await event_timeout(state.events["test_complete"], BYTES_THROUGHPUT_1MB / MIN_THROUGHPUT_BytePerSec)
+        await calculate_client_throughput(BYTES_THROUGHPUT_10MB)
+        await event_timeout(state.events["test_complete"], BYTES_THROUGHPUT_10MB / MIN_THROUGHPUT_BytePerSec)
+        await calculate_client_throughput(BYTES_THROUGHPUT_100MB)
+        await event_timeout(state.events["test_complete"], BYTES_THROUGHPUT_100MB / MIN_THROUGHPUT_BytePerSec)
 
     @state.client["throughput_channel"].on("message")
     def on_throughput_message(message):
@@ -206,24 +213,21 @@ def _register_client_throughput_channel_handlers():
         state.client["qtd_packages"] = state.client["qtd_packages"] + 1
 
 
-def calculate_client_throughput(test_size):
-    calculate_client_upload(test_size)
-    calculate_client_download(test_size)
+async def calculate_client_throughput(test_size):
+    state.reset_for_test()
+    await calculate_client_upload(test_size)
+    await calculate_client_download(test_size)
 
 
-def calculate_client_upload(test_size):
-    asyncio.create_task(send_throughput_data(state.client["throughput_channel"], state.client["control_channel"], state.client,
-                                                test_size))
-
+async def calculate_client_upload(test_size):
+    await send_throughput_data(state.client["throughput_channel"], state.client["control_channel"], state.client,test_size)
     ## a task abaixo irá aguardar o evento upload_received ou upload_error
-    asyncio.create_task(
-        send_ack_end_upload(state.client["control_channel"], test_size / MIN_THROUGHPUT_BytePerSec))
+    await send_ack_end_upload(state.client["control_channel"], test_size / MIN_THROUGHPUT_BytePerSec)
 
 
-def calculate_client_download(test_size):
+async def calculate_client_download(test_size):
     ## a task abaixo irá aguardar o evento throughput_finished
-    asyncio.create_task(
-        calculate_throughput(state.role, state.client, state.events["throughput_finished"], test_size / MIN_THROUGHPUT_BytePerSec))
+    await calculate_throughput(state.role, state.client, state.events["throughput_finished"], test_size / MIN_THROUGHPUT_BytePerSec)
         
 
 # endregion 
@@ -282,9 +286,10 @@ def _register_server_control_channel_handler():
             state.events["lat_ack_error"].set()
         if msg is not None:
             state.results["upload"] = msg["value"]  # It's here when the tests finish for server
+            state.results["server.upload"] = msg["value"]
             save_to_file(state.results)
             state.events["upload_received"].set()  # aqui preciso tratar
-            logger.info("Resultados do servidor: %s", state.results)
+            logger.info("Resultados do servidor (state REMOTO): %s", state.results)
         logger.debug("upload (json): %s", msg)
 
 
@@ -321,12 +326,13 @@ def _register_server_throughput_channel_handler():
 
 
 async def _calculate_server_download():
-    #await _calculate_download(BYTES_THROUGHPUT_100KB)
+    await _calculate_download(BYTES_THROUGHPUT_100KB)
     await _calculate_download(BYTES_THROUGHPUT_1MB)
     await _calculate_download(BYTES_THROUGHPUT_10MB)
-    #await _calculate_download(BYTES_THROUGHPUT_100MB)
+    await _calculate_download(BYTES_THROUGHPUT_100MB)
 
 async def _calculate_download(test_size):
+    state.reset_for_test()
     state.server["qtd_total_bytes"] = test_size
     # a task abaixo espera o envio dos dados (do cliente) terminar - throughput_finished
     await calculate_throughput(state.role, state.server, state.events["throughput_finished"])
