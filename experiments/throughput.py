@@ -22,8 +22,6 @@ logger = logging.getLogger(__name__)
 async def send_throughput_data(throughput_channel, control_channel, PEER, test_size):
     try:
         package = bytes(BYTES_PER_PACKAGE)
-        # as duas linhas a seguir podem virar so uma
-        # tam_total_dados = BYTES_THROUGHPUT_10MB  # enviarei no total 10MB = 10.000.000 Bytes
         PEER["qtd_total_bytes"] = test_size
         PEER["qtd_packages"] = 0
         qtd_pacotes = test_size // len(package)
@@ -32,7 +30,6 @@ async def send_throughput_data(throughput_channel, control_channel, PEER, test_s
         
         for i in range(0, qtd_pacotes):
             throughput_channel.send(package)
-        # throughput_channel.send(END_THROUGHPUT)
         control_channel.send(END_THROUGHPUT)
     except Exception as e:
         print(f'Erro no envio dos dados da vazão: {e}')
@@ -51,7 +48,6 @@ async def calculate_throughput(role, PEER, throughput_finished, timeout=5):
         vazao_em_Mbps = vazao_em_MB * 8
         if role == "server":
             state.results["download"] = vazao_em_Mbps
-            state.results["server.download"] = vazao_em_Mbps
             state.results["test_size"] = total_bytes_esperada
             # state.server["channels"][CONTROL].send(
             #     f'RESULTADO DO TESTE DE client.UPLOAD: \n A vazão calculada é de {vazao_em_Mbps} Mb/s')
@@ -60,17 +56,17 @@ async def calculate_throughput(role, PEER, throughput_finished, timeout=5):
                 "value": vazao_em_Mbps,
                 "test_size": total_bytes_esperada
             }))
-            logger.info("RESULTADO DO TESTE DE server.DOWNLOAD: \n A vazão calculada é de %s Mb/s para o tamanho de %s Mbytes", vazao_em_Mbps, int(PEER["qtd_total_bytes"])//10**6)
+            
+            #logger.info("RESULTADO DO TESTE DE server.DOWNLOAD: \n A vazão calculada é de %s Mb/s para o tamanho de %s Mbytes", vazao_em_Mbps, int(PEER["qtd_total_bytes"])//10**6)
             
 
             await start_server_upload_timeout()
             await calculate_server_upload(state.server["qtd_total_bytes"])
         else:
-            logger.debug("sou cliente e ja tenho o download: %s Mbps", vazao_em_Mbps)
+            #logger.debug("sou cliente e ja tenho o download: %s Mbps", vazao_em_Mbps)
             state.results["download"] = vazao_em_Mbps  # It's here when the tests finish for client
-            state.results["client.download"] = vazao_em_Mbps
             state.results["test_size"] = total_bytes_esperada
-            logger.info("Resultados do cliente (state LOCAL): %s", state.results)
+            logger.info("Resultados do cliente: %s", state.results)
             save_to_file(state.results)
             # state.client["control_channel"].send(
             #     f'RESULTADO DO TESTE DE server.UPLOAD: \n A vazão calculada é de {vazao_em_Mbps} Mb/s')
@@ -79,7 +75,7 @@ async def calculate_throughput(role, PEER, throughput_finished, timeout=5):
                 "value": vazao_em_Mbps,
                 "test_size": total_bytes_esperada
             }))
-            logger.info("RESULTADO DO TESTE DE client.DOWNLOAD: \n A vazão calculada é de %s Mb/s para o tamanho de %s Mbytes", vazao_em_Mbps, int(PEER["qtd_total_bytes"])//10**6)
+            #logger.info("RESULTADO DO TESTE DE client.DOWNLOAD: \n A vazão calculada é de %s Mb/s para o tamanho de %s Mbytes", vazao_em_Mbps, int(PEER["qtd_total_bytes"])//10**6)
     else:
         # meu download é none e o do outro par é none o upload
         state.results["download"] = None

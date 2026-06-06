@@ -15,6 +15,8 @@ LAT = "LAT"
 LAT_ACK = "LAT-ACK"
 ACK = "ACK"
 LOADED_LATENCY = "loaded_latency"
+END_ITERATION = "fim da iteração"
+END_LAT_PACKAGES = "cliente terminou o envio dos pacotes do teste de latência"
 
 # --- throughput test size ---
 BYTES_THROUGHPUT_100KB = 100 * 10 ** 3

@@ -10,8 +10,8 @@ class PeerState:
             "control_channel": None,
             "throughput_channel": None,
             "latency_channel": None,
-            "t0_latency": None,
-            "t1_latency": None,
+            "t0_latency": [],
+            "t1_latency": [],
             "t0_throughput": None,
             "t1_throughput": None,
             "qtd_packages": 0,
@@ -20,8 +20,8 @@ class PeerState:
 
         self.server: Server = {
             "channels": {},
-            "t0_latency": None,
-            "t1_latency": None,
+            "t0_latency": [],
+            "t1_latency": [],
             "t0_throughput": None,
             "t1_throughput": None,
             "qtd_packages": 0,
@@ -47,6 +47,7 @@ class PeerState:
             "latency_finished": asyncio.Event(),
             "throughput_finished": asyncio.Event(),
             "test_complete": asyncio.Event(),
+            "end_iteration": asyncio.Event(),
         }
     
     def reset_for_test(self):
@@ -54,14 +55,11 @@ class PeerState:
         self.results["download"] = None
         self.results["test_size"] = None
         
-
-        self.events["lat_ack_received"].clear()
-        self.events["ack_received"].clear()
         self.events["upload_received"].clear()
         self.events["start_server_upload"].clear()
         self.events["throughput_finished"].clear()
         self.events["test_complete"].clear()
-        self.events["upload_error"].clear()
-        
+        self.events["upload_error"].clear()    
+
 
 state = PeerState()
