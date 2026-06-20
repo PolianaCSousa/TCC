@@ -36,3 +36,5 @@ class Results(TypedDict):
     latency: float | None
     upload: float | None
     download: float | None
+    test_size: int | None
+    package_loss: float | None

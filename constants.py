@@ -2,6 +2,7 @@
 CONTROL = "control"
 LATENCY = "latency"
 THROUGHPUT = "throughput"
+PACKAGE_LOSS = "package_loss"
 
 # --- flags for acks and end of tests ---
 END_LATENCY = "Fim latência"
@@ -17,6 +18,8 @@ ACK = "ACK"
 LOADED_LATENCY = "loaded_latency"
 END_ITERATION = "fim da iteração"
 END_LAT_PACKAGES = "cliente terminou o envio dos pacotes do teste de latência"
+END_PACKAGE_LOSS = "fim do envio dos pacotes para cálculo da perda de pacotes"
+ACK_PACKAGE_LOSS = "valor (%) da perda de pacotes recebido"
 
 # --- throughput test size ---
 BYTES_THROUGHPUT_100KB = 100 * 10 ** 3

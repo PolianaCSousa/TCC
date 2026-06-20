@@ -86,7 +86,7 @@ async def calculate_throughput(role, PEER, throughput_finished, timeout=5):
 
 async def calculate_server_upload(test_size):
     await send_throughput_data(state.server["channels"][THROUGHPUT], state.server["channels"][CONTROL], state.server,
-                                                     test_size)  # TESTE COM 10MB por enquanto
+                                                     test_size)
             ## a task abaixo irá aguardar o evento upload_received ou upload_error
     await send_end_test(state.server["channels"][CONTROL], test_size / MIN_THROUGHPUT_BytePerSec)
 

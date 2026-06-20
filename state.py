@@ -10,10 +10,12 @@ class PeerState:
             "control_channel": None,
             "throughput_channel": None,
             "latency_channel": None,
+            "package_loss_channel": None,
             "t0_latency": [],
             "t1_latency": [],
             "t0_throughput": None,
             "t1_throughput": None,
+            "received_packages": 0,
             "qtd_packages": 0,
             "qtd_total_bytes": 0
         }
@@ -24,6 +26,7 @@ class PeerState:
             "t1_latency": [],
             "t0_throughput": None,
             "t1_throughput": None,
+            "received_packages": 0, 
             "qtd_packages": 0,
             "qtd_total_bytes": 0
         }
@@ -34,7 +37,8 @@ class PeerState:
             "latency": None,
             "upload": None,
             "download": None,
-            "test_size": None
+            "test_size": None,
+            "package_loss": None,
         }
 
         self.events = {
@@ -48,6 +52,7 @@ class PeerState:
             "throughput_finished": asyncio.Event(),
             "test_complete": asyncio.Event(),
             "end_iteration": asyncio.Event(),
+            "end_throughput_experiments": asyncio.Event(),
         }
     
     def reset_for_test(self):

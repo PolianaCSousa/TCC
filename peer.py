@@ -4,18 +4,19 @@ import socketio
 import time
 import logging
 import colorlog
+import json
 from custom_types import Client, Server, Peer, Results
 from utils import try_parse_json, event_timeout, update_peers_list
 from storage import save_to_file
 from state import state
 from constants import (
-    CONTROL, LATENCY, THROUGHPUT,
+    CONTROL, LATENCY, THROUGHPUT, PACKAGE_LOSS,
     END_LATENCY, END_THROUGHPUT, END_TEST,
     UPLOAD_RECEIVED, UPLOAD_ERROR, LAT_ACK_ERROR,
     LAT, LATENCY_TIMEOUT, 
     MIN_THROUGHPUT_BytePerSec, BYTES_THROUGHPUT_10MB, START_THROUGHPUT,
     BYTES_THROUGHPUT_100KB, BYTES_THROUGHPUT_100MB, BYTES_THROUGHPUT_1MB,
-    END_ITERATION, END_LAT_PACKAGES
+    END_ITERATION, END_LAT_PACKAGES, END_PACKAGE_LOSS, ACK_PACKAGE_LOSS
 )
 from experiments.latency import(
     server_send_lat_ack,
@@ -96,6 +97,7 @@ async def client_make_offer(target_name):
     _register_client_control_channel_handlers()
     _register_client_latency_channel_handlers()
     _register_client_throughput_channel_handlers()
+    _register_client_package_loss_channel_handlers()
 
 
 # this method receives the answer from the server peer.
@@ -112,6 +114,7 @@ def _create_client_data_channels():
     state.client["control_channel"] = peer.createDataChannel(CONTROL)
     state.client["throughput_channel"] = peer.createDataChannel(THROUGHPUT, maxPacketLifeTime=None, maxRetransmits=0,ordered=False)
     state.client["latency_channel"] = peer.createDataChannel(LATENCY)
+    state.client["package_loss_channel"] = peer.createDataChannel(PACKAGE_LOSS, maxPacketLifeTime=None, maxRetransmits=0, ordered=False)
 
 
 async def _create_and_send_sdp_offer(target_name):
@@ -150,10 +153,18 @@ def _register_client_control_channel_handlers():
         elif message == END_TEST:
             logger.info("------ TESTE FINALIZADO ------")
             state.events["test_complete"].set()
-        elif msg is not None:
+        elif message == END_PACKAGE_LOSS:
+            client_calculates_server_package_loss()
+        elif msg is not None and msg["msg"] == 'upload':
             state.results["upload"] = msg["value"]
             state.results["test_size"] = msg["test_size"]
             state.events["upload_received"].set()
+        elif msg is not None and msg["msg"] == 'package_loss':
+            state.results["package_loss"] = msg["value"]
+            state.client["control_channel"].send(ACK_PACKAGE_LOSS)
+            save_to_file(state.results)
+            logger.info("Perda de pacotes do cliente: %s", state.results["package_loss"])
+
         #else:
             #print(f"[CONTROLE]\t {message}")
 
@@ -187,7 +198,7 @@ def _register_client_throughput_channel_handlers():
         await calculate_client_throughput(BYTES_THROUGHPUT_1MB)
         await calculate_client_throughput(BYTES_THROUGHPUT_10MB)
         await calculate_client_throughput(BYTES_THROUGHPUT_100MB)
-        logger.info("---------------- FIM DO EXPERIMENTO ----------------")
+        state.events["end_throughput_experiments"].set()
         
 
     @state.client["throughput_channel"].on("message")
@@ -196,6 +207,17 @@ def _register_client_throughput_channel_handlers():
             state.client["t0_throughput"] = time.time()  # retorna o tempo em segundos
         state.client["qtd_packages"] = state.client["qtd_packages"] + 1
 
+
+def _register_client_package_loss_channel_handlers():
+    @state.client["package_loss_channel"].on("open")
+    async def on_package_loss_open():
+        await state.events["end_throughput_experiments"].wait() #espera o fim dos testes de latencia e vazão independentemente do tempo que eles irão gastar
+        client_package_loss()
+    
+    @state.client["package_loss_channel"].on("message")
+    def on_package_loss_message(message):
+        state.client["received_packages"] = state.client["received_packages"] + 1
+        
 
 async def calculate_client_throughput(test_size):
     state.reset_for_test()
@@ -227,6 +249,7 @@ async def client_latency(qtd_tests):
             #logger.info("vou enviar o ack pro servidor")
             await client_send_ack(state.client["latency_channel"])
         else:
+            state.client["t1_latency"].append(None) #se o LAT nao chegar no servidor, eu nem vou receber o LAT_ACK, logo meu t1_latency fica sendo None
             state.client["control_channel"].send(LAT_ACK_ERROR)
         #ESPERAR O END_ITERATION
         await event_timeout(state.events["end_iteration"], LATENCY_TIMEOUT)
@@ -240,6 +263,24 @@ async def calculate_client_latency(qtd_tests):
     latency = (lat_sum / qtd_tests) / 10**6 #converte de ns para ms
     state.results[LATENCY] = round(latency,2)
 
+
+def client_package_loss():
+    state.events["end_throughput_experiments"].clear()
+    package = bytes(1)
+    for _ in range(1000):
+        state.client["package_loss_channel"].send(package)
+    state.client["control_channel"].send(END_PACKAGE_LOSS)
+
+
+def client_calculates_server_package_loss():
+    received_packages = state.client["received_packages"]
+    lost_packages = 1000 - received_packages
+    package_loss = (lost_packages/1000) * 100
+    state.client["control_channel"].send(json.dumps({
+                "msg": "package_loss",
+                "value": package_loss,
+            }))
+    #ONDE PAREI: preciso adicionar timeout pra perda de pacote e testar 
 #def calculate_client_latency():
 
 # endregion 
@@ -261,6 +302,9 @@ async def server_receives_offer(data):
         elif received_channel.label == THROUGHPUT:
             state.server["channels"][THROUGHPUT] = received_channel
             _register_server_throughput_channel_handler()
+        elif received_channel.label == PACKAGE_LOSS:
+            state.server["channels"][PACKAGE_LOSS] = received_channel
+            _register_server_package_loss_channel_handler()
 # endregion
 
 # region Server methods
@@ -298,12 +342,21 @@ def _register_server_control_channel_handler():
             state.events["upload_error"].set()
         elif message == LAT_ACK_ERROR:
             state.events["lat_ack_error"].set()
-        elif msg is not None:
+        elif message == END_PACKAGE_LOSS:
+            server_calculates_client_package_loss()
+        elif message == ACK_PACKAGE_LOSS:
+            server_package_loss()
+        elif msg is not None and msg["msg"] == 'upload':
             logger.info("Upload do servidor: %s", msg["value"])
             state.results["upload"] = msg["value"]  # It's here when the tests finish for server
             save_to_file(state.results)
             state.events["upload_received"].set()
             logger.info("Resultados do servidor: %s", state.results)
+        elif msg is not None and msg["msg"] == 'package_loss':
+            state.results["package_loss"] = msg["value"]
+            save_to_file(state.results)
+            logger.info("Perda de pacotes do servidor: %s", state.results["package_loss"])
+            logger.info("---------------- FIM DO EXPERIMENTO ----------------")
 
 
 def _register_server_latency_channel_handler():
@@ -318,6 +371,31 @@ def _register_server_throughput_channel_handler():
         if state.server["qtd_packages"] == 0:
             state.server["t0_throughput"] = time.time()  # retorna o tempo em segundos
         state.server["qtd_packages"] = state.server["qtd_packages"] + 1
+
+
+def _register_server_package_loss_channel_handler():
+    @state.server["channels"][PACKAGE_LOSS].on("message")
+    def on_package_loss_message(message):
+        state.server["received_packages"] = state.server["received_packages"] + 1
+
+
+def server_calculates_client_package_loss():
+    #cálculo aqui
+    received_packages = state.server["received_packages"]
+    lost_packages = 1000 - received_packages
+    package_loss = (lost_packages/1000) * 100
+    state.server["channels"][CONTROL].send(json.dumps({
+                "msg": "package_loss",
+                "value": package_loss,
+            }))
+    #esperar ack do cliente e começar a enviar os meus pacotes
+
+
+def server_package_loss():
+    package = bytes(1)
+    for _ in range(1000):
+        state.server["channels"][PACKAGE_LOSS].send(package)
+    state.server["channels"][CONTROL].send(END_PACKAGE_LOSS)
 
 
 async def _calculate_server_download():

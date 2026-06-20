@@ -32,4 +32,5 @@ async def handle_server_latency_timeout(control_channel, timeout):
     if response != "ack_received":
         if not state.results[LATENCY]:
             # state.results[LATENCY] = None
+            state.server["t1_latency"].append(None)
             control_channel.send(END_ITERATION)
