@@ -1,0 +1,15 @@
+# Ambiente virtual (recriar em cada máquina com python3 -m venv venv)
+venv/
+
+# Cache do Python
+__pycache__/
+*.py[cod]
+
+# Resultados dos testes (gerados localmente)
+results.csv
+
+# Variáveis de ambiente / segredos
+.env
+
+# IDE
+.idea/

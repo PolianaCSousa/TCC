@@ -24,7 +24,7 @@ def save_to_file(results: Results):
 
     file_exists = os.path.exists('results.csv')
     results_data_frame.to_csv("results.csv", mode='a', header=not file_exists, index=False)
-    save_to_db(results, key_fields)
+    #save_to_db(results, key_fields)
 
 
 def save_to_db(results: Results, key_fields):
