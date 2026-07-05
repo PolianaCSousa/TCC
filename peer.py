@@ -12,7 +12,7 @@ from state import state
 from constants import (
     CONTROL, LATENCY, THROUGHPUT, PACKAGE_LOSS,
     END_LATENCY, END_THROUGHPUT, END_TEST, START_LOADED_PACKAGES, END_LOADED_PACKAGES, LOADED_LATENCY, LATENCY_PROBE_INTERVAL, LATENCY_TEST_SIZE,
-    UPLOAD_RECEIVED, UPLOAD_ERROR, LAT_ACK_ERROR,
+    UPLOAD_RECEIVED, UPLOAD_ERROR, LAT_ACK_ERROR, PACKAGE_LOSS_TIMEOUT,
     LAT, LATENCY_TIMEOUT, 
     MIN_THROUGHPUT_BytePerSec, BYTES_THROUGHPUT_10MB, START_THROUGHPUT,
     BYTES_THROUGHPUT_100KB, BYTES_THROUGHPUT_100MB, BYTES_THROUGHPUT_1MB,
@@ -161,6 +161,7 @@ def _register_client_control_channel_handlers():
             state.events["upload_received"].set()
         elif msg is not None and msg["msg"] == 'package_loss':
             state.results["package_loss"] = msg["value"]
+            state.events["package_loss_received"].set()
             state.client["control_channel"].send(ACK_PACKAGE_LOSS)
             save_to_file(state.results)
             logger.info("Perda de pacotes do cliente: %s", state.results["package_loss"])
@@ -213,7 +214,7 @@ def _register_client_package_loss_channel_handlers():
     @state.client["package_loss_channel"].on("open")
     async def on_package_loss_open():
         await state.events["end_throughput_experiments"].wait() #espera o fim dos testes de latencia e vazão independentemente do tempo que eles irão gastar
-        client_package_loss()
+        await client_package_loss()
     
     @state.client["package_loss_channel"].on("message")
     def on_package_loss_message(message):
@@ -291,13 +292,17 @@ async def calculate_client_latency(qtd_tests, result_key=LATENCY):
         state.reset_loaded_latency(state.client)
 
 
-def client_package_loss():
+async def client_package_loss():
+    state.events["package_loss_received"].clear()
     state.events["end_throughput_experiments"].clear()
     package = bytes(1)
     for _ in range(1000):
         state.client["package_loss_channel"].send(package)
+    await asyncio.sleep(2)
     state.client["control_channel"].send(END_PACKAGE_LOSS)
-
+    event_ocurred = await event_timeout(state.events["package_loss_received"], PACKAGE_LOSS_TIMEOUT)
+    if not event_ocurred:
+        state.results["package_loss"] = None
 
 def client_calculates_server_package_loss():
     received_packages = state.client["received_packages"]
@@ -373,7 +378,7 @@ def _register_server_control_channel_handler():
         elif message == END_PACKAGE_LOSS:
             server_calculates_client_package_loss()
         elif message == ACK_PACKAGE_LOSS:
-            server_package_loss()
+            await server_package_loss()
         elif msg is not None and msg["msg"] == 'upload':
             logger.info("Upload do servidor: %s", msg["value"])
             state.results["upload"] = msg["value"]  # It's here when the tests finish for server
@@ -382,6 +387,7 @@ def _register_server_control_channel_handler():
             logger.info("Resultados do servidor: %s", state.results)
         elif msg is not None and msg["msg"] == 'package_loss':
             state.results["package_loss"] = msg["value"]
+            state.events["package_loss_received"].set()
             save_to_file(state.results)
             logger.info("Perda de pacotes do servidor: %s", state.results["package_loss"])
             logger.info("---------------- FIM DO EXPERIMENTO ----------------")
@@ -419,12 +425,16 @@ def server_calculates_client_package_loss():
     #esperar ack do cliente e começar a enviar os meus pacotes
 
 
-def server_package_loss():
+async def server_package_loss():
+    state.events["package_loss_received"].clear()
     package = bytes(1)
     for _ in range(1000):
         state.server["channels"][PACKAGE_LOSS].send(package)
+    await asyncio.sleep(2)
     state.server["channels"][CONTROL].send(END_PACKAGE_LOSS)
-
+    event_ocurred = await event_timeout(state.events["package_loss_received"], PACKAGE_LOSS_TIMEOUT)
+    if not event_ocurred:
+        state.results["package_loss"] = None
 
 #acho que nao preciso chamar o calculate_server lataency depois de cada downlaod. EU tenho que chamar quando o ultimo pacote tiver chegando, e eu so sei disso pelo canal de controle
 async def _calculate_server_download():

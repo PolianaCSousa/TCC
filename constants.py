@@ -22,6 +22,7 @@ START_LOADED_PACKAGES = "cliente vai começar o envio dos pacotes do teste de la
 END_LOADED_PACKAGES = "cliente terminou o envio dos pacotes do teste de latência carregada"
 END_PACKAGE_LOSS = "fim do envio dos pacotes para cálculo da perda de pacotes"
 ACK_PACKAGE_LOSS = "valor (%) da perda de pacotes recebido"
+PACKAGE_LOSS_TIMEOUT = 5
 LATENCY_TEST_SIZE = 20
 
 # --- throughput test size ---
