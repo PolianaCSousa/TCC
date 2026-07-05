@@ -7,6 +7,8 @@ class Client(TypedDict):
     latency_channel: RTCDataChannel | None
     t0_latency: int | None
     t1_latency: int | None
+    t0_loaded_latency: int | None
+    t1_loaded_latency: int | None
     t0_throughput: int | float | None
     t1_throughput: int | float | None
     qtd_packages: int
@@ -17,6 +19,8 @@ class Server(TypedDict):
     channels: dict[str, RTCDataChannel]
     t0_latency: int | None
     t1_latency: int | None
+    t0_loaded_latency: int | None
+    t1_loaded_latency: int | None
     t0_throughput: int | float | None
     t1_throughput: int | float | None
     qtd_packages: int
@@ -34,6 +38,8 @@ class Results(TypedDict):
     role: str | None
     sid: str | None
     latency: float | None
+    loaded_latency_upload: float | None
+    loaded_latency_download: float | None
     upload: float | None
     download: float | None
     test_size: int | None

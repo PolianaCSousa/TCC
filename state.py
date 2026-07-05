@@ -5,7 +5,8 @@ class PeerState:
     def __init__(self) -> None:
         self.sid: str | None = None
         self.role: str | None = None
-        
+        self.latency_type: str = "unloaded"
+
         self.client: Client = {
             "control_channel": None,
             "throughput_channel": None,
@@ -13,6 +14,8 @@ class PeerState:
             "package_loss_channel": None,
             "t0_latency": [],
             "t1_latency": [],
+            "t0_loaded_latency": [],
+            "t1_loaded_latency": [],
             "t0_throughput": None,
             "t1_throughput": None,
             "received_packages": 0,
@@ -24,6 +27,8 @@ class PeerState:
             "channels": {},
             "t0_latency": [],
             "t1_latency": [],
+            "t0_loaded_latency": [],
+            "t1_loaded_latency": [],
             "t0_throughput": None,
             "t1_throughput": None,
             "received_packages": 0, 
@@ -35,6 +40,7 @@ class PeerState:
             "role": None,
             "sid": None,
             "latency": None,
+            "loaded_latency": None,
             "upload": None,
             "download": None,
             "test_size": None,
@@ -53,8 +59,19 @@ class PeerState:
             "test_complete": asyncio.Event(),
             "end_iteration": asyncio.Event(),
             "end_throughput_experiments": asyncio.Event(),
+            "loaded_latency_finished": asyncio.Event(),
         }
     
+    def t0_latency_key(self):
+        return "t0_loaded_latency" if self.latency_type == "loaded" else "t0_latency"
+
+    def t1_latency_key(self):
+        return "t1_loaded_latency" if self.latency_type == "loaded" else "t1_latency"
+
+    def reset_loaded_latency(self, peer):
+        peer["t0_loaded_latency"].clear()
+        peer["t1_loaded_latency"].clear()
+
     def reset_for_test(self):
         self.results["upload"] = None
         self.results["download"] = None

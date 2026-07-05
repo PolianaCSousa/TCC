@@ -18,8 +18,11 @@ ACK = "ACK"
 LOADED_LATENCY = "loaded_latency"
 END_ITERATION = "fim da iteração"
 END_LAT_PACKAGES = "cliente terminou o envio dos pacotes do teste de latência"
+START_LOADED_PACKAGES = "cliente vai começar o envio dos pacotes do teste de latência carregada"
+END_LOADED_PACKAGES = "cliente terminou o envio dos pacotes do teste de latência carregada"
 END_PACKAGE_LOSS = "fim do envio dos pacotes para cálculo da perda de pacotes"
 ACK_PACKAGE_LOSS = "valor (%) da perda de pacotes recebido"
+LATENCY_TEST_SIZE = 20
 
 # --- throughput test size ---
 BYTES_THROUGHPUT_100KB = 100 * 10 ** 3
@@ -38,3 +41,5 @@ _ACCEPTABLE_LATENCY_MS = 80
 LATENCY_TIMEOUT = 10 * (_ACCEPTABLE_LATENCY_MS / 1000)  # estou considerando que a latencia aceitável é de 80ms. Meu timeout vai esperar até 10 vezes isso.
 SHORT_TIMEOUT = 12 * (_ACCEPTABLE_LATENCY_MS / 1000)  # criei esse timeout pra esperar os acks - MOSTRAR EVERTHON
 
+# LATENCY_PROBE_INTERVAL = 0.001 # 10 ms
+LATENCY_PROBE_INTERVAL = 0.002 # 20 ms
