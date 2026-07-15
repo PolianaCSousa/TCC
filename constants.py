@@ -30,6 +30,13 @@ BYTES_THROUGHPUT_100KB = 100 * 10 ** 3
 BYTES_THROUGHPUT_1MB = 1 * 10 ** 6
 BYTES_THROUGHPUT_10MB = 10 * 10 ** 6
 BYTES_THROUGHPUT_100MB = 100 * 10 ** 6
+
+THROUGHPUT_LABELS = {
+    BYTES_THROUGHPUT_100KB: "100KB",
+    BYTES_THROUGHPUT_1MB: "1MB",
+    BYTES_THROUGHPUT_10MB: "10MB",
+    BYTES_THROUGHPUT_100MB: "100MB",
+}
 # menor vazão que eu espero que meus usuários tenham
 __MIN_THROUGHPUT_MbitPerSec = 1  ## 1 MbitPerSec - essa variavel é a velocidade contratada pelo usuário mais humilde
 MIN_THROUGHPUT_BytePerSec = (__MIN_THROUGHPUT_MbitPerSec / 8) * 10 ** 6  ## 8 MbitPerSec / 8 bits = 1 MBytePerSec - aqui como eu estou enviando Bytes no meu teste de vazão, eu preciso converter de bit pra Byte e multiplicar pela potência de 10 do MB

@@ -1,5 +1,6 @@
 import asyncio
 from custom_types import Client, Server, Peer, Results
+from constants import THROUGHPUT_LABELS
 
 class PeerState:
     def __init__(self) -> None:
@@ -40,10 +41,23 @@ class PeerState:
             "role": None,
             "sid": None,
             "latency": None,
-            "loaded_latency": None,
-            "upload": None,
-            "download": None,
-            "test_size": None,
+
+            "100KB_upload": None,
+            "100KB_download": None,
+            "100KB_loaded_latency": None,
+
+            "1MB_upload": None,
+            "1MB_download": None,
+            "1MB_loaded_latency": None,
+
+            "10MB_upload": None,
+            "10MB_download": None,
+            "10MB_loaded_latency": None,
+
+            "100MB_upload": None,
+            "100MB_download": None,
+            "100MB_loaded_latency": None,
+
             "package_loss": None,
         }
 
@@ -61,6 +75,7 @@ class PeerState:
             "end_throughput_experiments": asyncio.Event(),
             "loaded_latency_finished": asyncio.Event(),
             "package_loss_received": asyncio.Event(),
+            "ack_package_loss_received": asyncio.Event(),
         }
     
     def t0_latency_key(self):
@@ -73,16 +88,17 @@ class PeerState:
         peer["t0_loaded_latency"].clear()
         peer["t1_loaded_latency"].clear()
 
+    def reset_results(self):
+        for key in self.results:
+            if key not in ("role", "sid"):
+                self.results[key] = None
+
     def reset_for_test(self):
-        self.results["upload"] = None
-        self.results["download"] = None
-        self.results["test_size"] = None
-        
         self.events["upload_received"].clear()
         self.events["start_server_upload"].clear()
         self.events["throughput_finished"].clear()
         self.events["test_complete"].clear()
-        self.events["upload_error"].clear()    
+        self.events["upload_error"].clear()
 
 
 state = PeerState()

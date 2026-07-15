@@ -34,13 +34,4 @@ class Peer(TypedDict):
     sid: str | None
 
 
-class Results(TypedDict):
-    role: str | None
-    sid: str | None
-    latency: float | None
-    loaded_latency_upload: float | None
-    loaded_latency_download: float | None
-    upload: float | None
-    download: float | None
-    test_size: int | None
-    package_loss: float | None
+Results = dict[str, str | float | None]

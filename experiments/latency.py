@@ -1,4 +1,4 @@
-from constants import (LAT_ACK, LAT, ACK, LATENCY, LOADED_LATENCY, END_ITERATION)
+from constants import (LAT_ACK, LAT, ACK, END_ITERATION)
 import time
 from utils import events_timeout, event_timeout
 import logging
@@ -30,7 +30,8 @@ async def handle_server_latency_timeout(control_channel, timeout):
                                      "lat_ack_error": state.events["lat_ack_error"]
                                      }, timeout)
     if response != "ack_received":
-        if not state.results[LATENCY] or not state.results[LOADED_LATENCY]:
-            # state.results[LATENCY] = None
-            state.server[state.t1_latency_key()].append(None)
+        t0 = state.server[state.t0_latency_key()]
+        t1 = state.server[state.t1_latency_key()]
+        if len(t1) < len(t0):          # só anexa None se estou devendo um t1 nesta iteração
+            t1.append(None)
             control_channel.send(END_ITERATION)

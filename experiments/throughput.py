@@ -8,7 +8,8 @@ from constants import (
     THROUGHPUT,
     UPLOAD_ERROR,
     UPLOAD_RECEIVED,
-    END_TEST)
+    END_TEST,
+    THROUGHPUT_LABELS)
 import logging
 from state import state
 import json
@@ -38,6 +39,7 @@ async def send_throughput_data(throughput_channel, control_channel, PEER, test_s
 async def calculate_throughput(role, PEER, throughput_finished, timeout=5):
     total_bytes_esperada = PEER[
         "qtd_total_bytes"]  ## ex.: teria o BYTES_THROUGHPUT_10MB como o valor dessa chave tam_bytes_test
+    label = THROUGHPUT_LABELS[total_bytes_esperada]  
     timeout = total_bytes_esperada / MIN_THROUGHPUT_BytePerSec
     response = await event_timeout(throughput_finished, timeout)
     if response:
@@ -47,8 +49,7 @@ async def calculate_throughput(role, PEER, throughput_finished, timeout=5):
         vazao_em_MB = round(vazao_em_bytes / 10 ** 6, 2)
         vazao_em_Mbps = vazao_em_MB * 8
         if role == "server":
-            state.results["download"] = vazao_em_Mbps
-            state.results["test_size"] = total_bytes_esperada
+            state.results[f"{label}_download"] = vazao_em_Mbps
             # state.server["channels"][CONTROL].send(
             #     f'RESULTADO DO TESTE DE client.UPLOAD: \n A vazão calculada é de {vazao_em_Mbps} Mb/s')
             state.server["channels"][CONTROL].send(json.dumps({
@@ -64,10 +65,8 @@ async def calculate_throughput(role, PEER, throughput_finished, timeout=5):
             await calculate_server_upload(state.server["qtd_total_bytes"])
         else:
             #logger.debug("sou cliente e ja tenho o download: %s Mbps", vazao_em_Mbps)
-            state.results["download"] = vazao_em_Mbps  # It's here when the tests finish for client
-            state.results["test_size"] = total_bytes_esperada
+            state.results[f"{label}_download"] = vazao_em_Mbps  # It's here when the tests finish for client
             logger.info("Resultados do cliente: %s", state.results)
-            save_to_file(state.results)
             # state.client["control_channel"].send(
             #     f'RESULTADO DO TESTE DE server.UPLOAD: \n A vazão calculada é de {vazao_em_Mbps} Mb/s')
             state.client["control_channel"].send(json.dumps({
@@ -78,7 +77,7 @@ async def calculate_throughput(role, PEER, throughput_finished, timeout=5):
             #logger.info("RESULTADO DO TESTE DE client.DOWNLOAD: \n A vazão calculada é de %s Mb/s para o tamanho de %s Mbytes", vazao_em_Mbps, int(PEER["qtd_total_bytes"])//10**6)
     else:
         # meu download é none e o do outro par é none o upload
-        state.results["download"] = None
+        state.results[f"{label}_download"] = None
         if role == "server":
             state.server["channels"][CONTROL].send(UPLOAD_ERROR)
         else:
@@ -88,7 +87,7 @@ async def calculate_server_upload(test_size):
     await send_throughput_data(state.server["channels"][THROUGHPUT], state.server["channels"][CONTROL], state.server,
                                                      test_size)
             ## a task abaixo irá aguardar o evento upload_received ou upload_error
-    await send_end_test(state.server["channels"][CONTROL], test_size / MIN_THROUGHPUT_BytePerSec)
+    await send_end_test(state.server["channels"][CONTROL], test_size / MIN_THROUGHPUT_BytePerSec, test_size)
 
 
 async def start_server_upload_timeout():
@@ -100,27 +99,29 @@ async def start_server_upload_timeout():
         state.server["channels"][CONTROL].send("Recebi ACK do upload do cliente. Vou iniciar o teste agora.")
 
 
-async def send_ack_end_upload(control_channel, timeout):
+async def send_ack_end_upload(control_channel, timeout, test_size):
+    label = THROUGHPUT_LABELS[test_size]
     response = await events_timeout({"upload_received": state.events["upload_received"],
                                      "upload_error": state.events["upload_error"]
                                      }, timeout)
     if response == "upload_received":
         control_channel.send(UPLOAD_RECEIVED)
     else:
-        if state.results["upload"] is not None:
-            state.results["upload"] = None
+        if state.results[f"{label}_upload"] is not None:
+            state.results[f"{label}_upload"] = None
         if state.role == "client":
             control_channel.send(UPLOAD_RECEIVED)  # vou enviar mesmo que tenha dado errado pra que o teste continue
         else:
             control_channel.send(UPLOAD_ERROR)
 
 
-async def send_end_test(control_channel, timeout):
+async def send_end_test(control_channel, timeout, test_size):
+    label = THROUGHPUT_LABELS[test_size]
     response = await events_timeout({"upload_received": state.events["upload_received"],
                                      "upload_error": state.events["upload_error"]
                                      }, timeout)
-    if response == "upload_error" and state.results["upload"] is not None:
-        state.results["upload"] = None
+    if response == "upload_error" and state.results[f"{label}_upload"] is not None:
+        state.results[f"{label}_upload"] = None
     control_channel.send(END_TEST)  # somente aqui eu envio o fim do teste, quando da certo ou quando da errado
 
 

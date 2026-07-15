@@ -4,27 +4,11 @@ from influx_service import InfluxService
 from custom_types import Results
 
 def save_to_file(results: Results):
-    if "package_loss" in results and results["package_loss"] is not None:
-        results = dict(results) #copiei o dicionário pra nao modificar o original
-        for key in ["latency", "upload", "download"]: #TODO adicionar a coluna de test_size no influx
-            results.pop(key, None)
-
-        results_data_frame = pd.DataFrame([results]).rename(columns={
-            "package_loss": "package loss (%)",
-        })
-        key_fields = ["package_loss"]
-
-    else:
-        results_data_frame = pd.DataFrame([results]).rename(columns={
-            "latency": "latency (ms)",
-            "upload": "upload (Mbps)",
-            "download": "download (Mbps)",
-        })
-        key_fields = ["latency", "upload", "download"]
-
+    # 1 linha por experimento: o dict já vem completo com todas as colunas (prefixadas por tamanho).
+    results_data_frame = pd.DataFrame([results])
     file_exists = os.path.exists('results.csv')
     results_data_frame.to_csv("results.csv", mode='a', header=not file_exists, index=False)
-    #save_to_db(results, key_fields)
+    #save_to_db(results)
 
 
 def save_to_db(results: Results, key_fields):

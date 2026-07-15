@@ -16,7 +16,8 @@ from constants import (
     LAT, LATENCY_TIMEOUT, 
     MIN_THROUGHPUT_BytePerSec, BYTES_THROUGHPUT_10MB, START_THROUGHPUT,
     BYTES_THROUGHPUT_100KB, BYTES_THROUGHPUT_100MB, BYTES_THROUGHPUT_1MB,
-    END_ITERATION, END_LAT_PACKAGES, END_PACKAGE_LOSS, ACK_PACKAGE_LOSS
+    END_ITERATION, END_LAT_PACKAGES, END_PACKAGE_LOSS, ACK_PACKAGE_LOSS,
+    THROUGHPUT_LABELS
 )
 from experiments.latency import(
     server_send_lat_ack,
@@ -156,14 +157,13 @@ def _register_client_control_channel_handlers():
         elif message == END_PACKAGE_LOSS:
             client_calculates_server_package_loss()
         elif msg is not None and msg["msg"] == 'upload':
-            state.results["upload"] = msg["value"]
-            state.results["test_size"] = msg["test_size"]
+            label = THROUGHPUT_LABELS[msg["test_size"]]
+            state.results[f"{label}_upload"] = msg["value"]
             state.events["upload_received"].set()
         elif msg is not None and msg["msg"] == 'package_loss':
             state.results["package_loss"] = msg["value"]
             state.events["package_loss_received"].set()
             state.client["control_channel"].send(ACK_PACKAGE_LOSS)
-            save_to_file(state.results)
             logger.info("Perda de pacotes do cliente: %s", state.results["package_loss"])
 
         #else:
@@ -180,8 +180,11 @@ def _register_client_latency_channel_handlers():
 
     @state.client["latency_channel"].on("message")
     def on_latency_message(message):
-        state.client[state.t1_latency_key()].append(time.time_ns())
-        state.events["lat_ack_received"].set()  # adicionei o set do evento depois de enviar o ack pra poder enviar o ack o mais rapido possivel de volta pro par servidor
+        t0 = state.client[state.t0_latency_key()]
+        t1 = state.client[state.t1_latency_key()]
+        if len(t1) < len(t0):
+            t1.append(time.time_ns())
+            state.events["lat_ack_received"].set()
       
 
 def _register_client_throughput_channel_handlers():
@@ -229,10 +232,11 @@ async def calculate_client_throughput(test_size):
 
 
 async def calculate_client_upload(test_size):
-    asyncio.create_task(client_latency(LATENCY_TEST_SIZE, LOADED_LATENCY, LATENCY_PROBE_INTERVAL))
+    loaded_latency_task = asyncio.create_task(client_latency(LATENCY_TEST_SIZE, LOADED_LATENCY, LATENCY_PROBE_INTERVAL, test_size))
     await send_throughput_data(state.client["throughput_channel"], state.client["control_channel"], state.client,test_size)
     ## a task abaixo irá aguardar o evento upload_received ou upload_error
-    await send_ack_end_upload(state.client["control_channel"], test_size / MIN_THROUGHPUT_BytePerSec)
+    await send_ack_end_upload(state.client["control_channel"], test_size / MIN_THROUGHPUT_BytePerSec, test_size)
+    await loaded_latency_task
 
 
 async def calculate_client_download(test_size):
@@ -240,7 +244,7 @@ async def calculate_client_download(test_size):
     await calculate_throughput(state.role, state.client, state.events["throughput_finished"], test_size / MIN_THROUGHPUT_BytePerSec)
         
 
-async def client_latency(qtd_tests, type=LATENCY, sleep_loaded_interval=0):
+async def client_latency(qtd_tests, type=LATENCY, sleep_loaded_interval=0, test_size=None):
     state.latency_type = "loaded" if (type == LOADED_LATENCY) else "unloaded"
     if type == LOADED_LATENCY:
         state.client["control_channel"].send(START_LOADED_PACKAGES)
@@ -266,10 +270,10 @@ async def client_latency(qtd_tests, type=LATENCY, sleep_loaded_interval=0):
     
     if type == LOADED_LATENCY:
         state.client["control_channel"].send(END_LOADED_PACKAGES)
-        await calculate_client_latency(LATENCY_TEST_SIZE, LOADED_LATENCY)
+        await calculate_client_latency(LATENCY_TEST_SIZE, LOADED_LATENCY, test_size)
         
 
-async def calculate_client_latency(qtd_tests, result_key=LATENCY):
+async def calculate_client_latency(qtd_tests, result_key=LATENCY, test_size=None):
     lat_sum = 0
     qtd_received = min(len(state.client[state.t0_latency_key()]), len(state.client[state.t1_latency_key()]))
     qtd_received = min(qtd_tests, qtd_received)
@@ -282,12 +286,13 @@ async def calculate_client_latency(qtd_tests, result_key=LATENCY):
             continue 
         logger.info(f'===> qtd_tests={qtd_tests} \t i={i} of range={qtd_received}')
 
+    col = LATENCY if result_key == LATENCY else f"{THROUGHPUT_LABELS[test_size]}_loaded_latency"
     if valid_packages > 0:
         latency = (lat_sum / valid_packages) / 10**6 #converte de ns para ms
-        state.results[result_key] = round(latency,2)
+        state.results[col] = round(latency,2)
     else:
-        state.results[result_key] = None
-    
+        state.results[col] = None
+
     if result_key != LATENCY:
         state.reset_loaded_latency(state.client)
 
@@ -303,6 +308,8 @@ async def client_package_loss():
     event_ocurred = await event_timeout(state.events["package_loss_received"], PACKAGE_LOSS_TIMEOUT)
     if not event_ocurred:
         state.results["package_loss"] = None
+    save_to_file(state.results)
+    state.reset_results()
 
 def client_calculates_server_package_loss():
     received_packages = state.client["received_packages"]
@@ -366,7 +373,7 @@ def _register_server_control_channel_handler():
         elif message == START_LOADED_PACKAGES:
             state.latency_type = "loaded"
         elif message == END_LOADED_PACKAGES:
-            calculate_server_latency(LATENCY_TEST_SIZE, LOADED_LATENCY)
+            calculate_server_latency(LATENCY_TEST_SIZE, LOADED_LATENCY, state.server["qtd_total_bytes"])
         elif message == END_THROUGHPUT:
             state.events["throughput_finished"].set()
         elif message == UPLOAD_RECEIVED:
@@ -376,19 +383,18 @@ def _register_server_control_channel_handler():
         elif message == LAT_ACK_ERROR:
             state.events["lat_ack_error"].set()
         elif message == END_PACKAGE_LOSS:
-            server_calculates_client_package_loss()
+            await server_calculates_client_package_loss()
         elif message == ACK_PACKAGE_LOSS:
-            await server_package_loss()
+            state.events["ack_package_loss_received"].set()
         elif msg is not None and msg["msg"] == 'upload':
             logger.info("Upload do servidor: %s", msg["value"])
-            state.results["upload"] = msg["value"]  # It's here when the tests finish for server
-            save_to_file(state.results)
+            label = THROUGHPUT_LABELS[msg["test_size"]]
+            state.results[f"{label}_upload"] = msg["value"]  # It's here when the tests finish for server
             state.events["upload_received"].set()
             logger.info("Resultados do servidor: %s", state.results)
         elif msg is not None and msg["msg"] == 'package_loss':
             state.results["package_loss"] = msg["value"]
             state.events["package_loss_received"].set()
-            save_to_file(state.results)
             logger.info("Perda de pacotes do servidor: %s", state.results["package_loss"])
             logger.info("---------------- FIM DO EXPERIMENTO ----------------")
 
@@ -413,7 +419,7 @@ def _register_server_package_loss_channel_handler():
         state.server["received_packages"] = state.server["received_packages"] + 1
 
 
-def server_calculates_client_package_loss():
+async def server_calculates_client_package_loss():
     #cálculo aqui
     received_packages = state.server["received_packages"]
     lost_packages = 1000 - received_packages
@@ -422,7 +428,9 @@ def server_calculates_client_package_loss():
                 "msg": "package_loss",
                 "value": package_loss,
             }))
-    #esperar ack do cliente e começar a enviar os meus pacotes
+    state.events["ack_package_loss_received"].clear()
+    await event_timeout(state.events["ack_package_loss_received"], PACKAGE_LOSS_TIMEOUT)
+    await server_package_loss()
 
 
 async def server_package_loss():
@@ -435,6 +443,8 @@ async def server_package_loss():
     event_ocurred = await event_timeout(state.events["package_loss_received"], PACKAGE_LOSS_TIMEOUT)
     if not event_ocurred:
         state.results["package_loss"] = None
+    save_to_file(state.results)
+    state.reset_results()
 
 #acho que nao preciso chamar o calculate_server lataency depois de cada downlaod. EU tenho que chamar quando o ultimo pacote tiver chegando, e eu so sei disso pelo canal de controle
 async def _calculate_server_download():
@@ -466,7 +476,7 @@ async def server_latency(message):
         state.server["channels"][CONTROL].send(END_ITERATION)
 
 
-def calculate_server_latency(qtd_tests, result_key=LATENCY):
+def calculate_server_latency(qtd_tests, result_key=LATENCY, test_size=None):
     lat_sum = 0
     qtd_received = min(len(state.server[state.t0_latency_key()]), len(state.server[state.t1_latency_key()]))
     qtd_received = min(qtd_tests, qtd_received)
@@ -479,11 +489,12 @@ def calculate_server_latency(qtd_tests, result_key=LATENCY):
             continue  
         logger.info(f'===> qtd_tests={qtd_tests} \t i={i} of range={qtd_received}')
 
+    col = LATENCY if result_key == LATENCY else f"{THROUGHPUT_LABELS[test_size]}_loaded_latency"
     if valid_packages > 0:
         latency = (lat_sum / valid_packages) / 10**6 #converte de ns para ms
-        state.results[result_key] = round(latency,2)
+        state.results[col] = round(latency,2)
     else:
-        state.results[result_key] = None
+        state.results[col] = None
     state.server["channels"][CONTROL].send(END_LATENCY)
     if result_key != LATENCY:
         state.reset_loaded_latency(state.server)
