@@ -8,6 +8,8 @@ def _column_with_unit(col: str) -> str:
         return f"{col} (Mbps)"
     if col == "latency" or col.endswith("_loaded_latency"):
         return f"{col} (ms)"
+    if col == "jitter" or col.endswith("_loaded_jitter"):
+        return f"{col} (ms)"
     if col == "package_loss":
         return f"{col} (%)"
     return col

@@ -55,6 +55,7 @@ BYTES_PER_PACKAGE = 1400
 # --- timeouts ---
 _ACCEPTABLE_LATENCY_MS = 80
 LATENCY_TIMEOUT = 10 * (_ACCEPTABLE_LATENCY_MS / 1000)  # estou considerando que a latencia aceitável é de 80ms. Meu timeout vai esperar até 10 vezes isso.
+LOADED_LATENCY_TIMEOUT = 2 
 SHORT_TIMEOUT = 12 * (_ACCEPTABLE_LATENCY_MS / 1000)  # criei esse timeout pra esperar os acks - MOSTRAR EVERTHON
 
 # LATENCY_PROBE_INTERVAL = 0.001 # 10 ms

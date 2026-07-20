@@ -13,7 +13,7 @@ from constants import (
     CONTROL, LATENCY, THROUGHPUT, PACKAGE_LOSS,
     END_LATENCY, END_THROUGHPUT, END_TEST, START_LOADED_PACKAGES, END_LOADED_PACKAGES, LOADED_LATENCY, LATENCY_PROBE_INTERVAL, LATENCY_TEST_SIZE,
     UPLOAD_RECEIVED, UPLOAD_ERROR, LAT_ACK_ERROR, PACKAGE_LOSS_TIMEOUT,
-    LAT, LATENCY_TIMEOUT, 
+    LAT, LATENCY_TIMEOUT, LOADED_LATENCY_TIMEOUT,
     MIN_THROUGHPUT_BytePerSec, BYTES_THROUGHPUT_10MB, START_THROUGHPUT,
     BYTES_THROUGHPUT_100KB, BYTES_THROUGHPUT_100MB, BYTES_THROUGHPUT_1MB,
     END_ITERATION, END_LAT_PACKAGES, END_PACKAGE_LOSS, ACK_PACKAGE_LOSS,
@@ -23,7 +23,9 @@ from experiments.latency import(
     server_send_lat_ack,
     client_send_lat_package,
     client_send_ack,
-    handle_server_latency_timeout)
+    handle_server_latency_timeout,
+    calc_latency,
+)
 from experiments.throughput import(
     send_throughput_data,
     calculate_throughput,
@@ -253,6 +255,7 @@ async def calculate_client_download(test_size):
 
 async def client_latency(qtd_tests, type=LATENCY, sleep_loaded_interval=0, test_size=None):
     state.latency_type = "loaded" if (type == LOADED_LATENCY) else "unloaded"
+    latency_timeout = LOADED_LATENCY_TIMEOUT if type == LOADED_LATENCY else LATENCY_TIMEOUT
     if type == LOADED_LATENCY:
         state.client["control_channel"].send(START_LOADED_PACKAGES)
     for _ in range(qtd_tests):
@@ -262,7 +265,7 @@ async def client_latency(qtd_tests, type=LATENCY, sleep_loaded_interval=0, test_
         state.events["end_iteration"].clear()
         await client_send_lat_package(state.client["latency_channel"])
 
-        event_occured = await event_timeout(state.events["lat_ack_received"], LATENCY_TIMEOUT)
+        event_occured = await event_timeout(state.events["lat_ack_received"], latency_timeout)
         if event_occured:
             #logger.info("vou enviar o ack pro servidor")
             await client_send_ack(state.client["latency_channel"])
@@ -270,7 +273,7 @@ async def client_latency(qtd_tests, type=LATENCY, sleep_loaded_interval=0, test_
             state.client[state.t1_latency_key()].append(None) #se o LAT nao chegar no servidor, eu nem vou receber o LAT_ACK, logo meu t1_latency fica sendo None
             state.client["control_channel"].send(LAT_ACK_ERROR)
         #ESPERAR O END_ITERATION
-        await event_timeout(state.events["end_iteration"], LATENCY_TIMEOUT)
+        await event_timeout(state.events["end_iteration"], latency_timeout)
 
         if sleep_loaded_interval:
             await asyncio.sleep(sleep_loaded_interval)
@@ -281,24 +284,18 @@ async def client_latency(qtd_tests, type=LATENCY, sleep_loaded_interval=0, test_
         
 
 async def calculate_client_latency(qtd_tests, result_key=LATENCY, test_size=None):
-    lat_sum = 0
     qtd_received = min(len(state.client[state.t0_latency_key()]), len(state.client[state.t1_latency_key()]))
     qtd_received = min(qtd_tests, qtd_received)
-    valid_packages = 0
+    all_measures = []
+
     for i in range(qtd_received):
         if state.client[state.t1_latency_key()][i] is not None:
-            lat_sum = lat_sum + (state.client[state.t1_latency_key()][i] - state.client[state.t0_latency_key()][i])
-            valid_packages = valid_packages + 1
+            all_measures.append(state.client[state.t1_latency_key()][i] - state.client[state.t0_latency_key()][i])
         else:
             continue 
         logger.info(f'===> qtd_tests={qtd_tests} \t i={i} of range={qtd_received}')
 
-    col = LATENCY if result_key == LATENCY else f"{THROUGHPUT_LABELS[test_size]}_loaded_latency"
-    if valid_packages > 0:
-        latency = (lat_sum / valid_packages) / 10**6 #converte de ns para ms
-        state.results[col] = round(latency,2)
-    else:
-        state.results[col] = None
+    calc_latency(all_measures, result_key, test_size)
 
     if result_key != LATENCY:
         state.reset_loaded_latency(state.client)
@@ -479,7 +476,8 @@ async def server_latency(message):
         state.events["ack_received"].clear()
         state.events["lat_ack_error"].clear()
         await server_send_lat_ack(state.server["channels"][LATENCY])
-        await handle_server_latency_timeout(state.server["channels"][CONTROL], LATENCY_TIMEOUT)
+        latency_timeout = LOADED_LATENCY_TIMEOUT if state.latency_type == "loaded" else LATENCY_TIMEOUT
+        await handle_server_latency_timeout(state.server["channels"][CONTROL], latency_timeout)
     else:  # se ACK for recebido com sucesso
         state.server[state.t1_latency_key()].append(time.time_ns())
         state.events["ack_received"].set()
@@ -488,24 +486,19 @@ async def server_latency(message):
 
 
 def calculate_server_latency(qtd_tests, result_key=LATENCY, test_size=None):
-    lat_sum = 0
     qtd_received = min(len(state.server[state.t0_latency_key()]), len(state.server[state.t1_latency_key()]))
     qtd_received = min(qtd_tests, qtd_received)
-    valid_packages = 0
+    all_measures = []
+
     for i in range( qtd_received ) :
         if state.server[state.t1_latency_key()][i] is not None:
-            lat_sum = lat_sum + (state.server[state.t1_latency_key()][i] - state.server[state.t0_latency_key()][i])
-            valid_packages = valid_packages + 1
+            all_measures.append((state.server[state.t1_latency_key()][i] - state.server[state.t0_latency_key()][i]))
         else:
             continue  
         logger.info(f'===> qtd_tests={qtd_tests} \t i={i} of range={qtd_received}')
 
-    col = LATENCY if result_key == LATENCY else f"{THROUGHPUT_LABELS[test_size]}_loaded_latency"
-    if valid_packages > 0:
-        latency = (lat_sum / valid_packages) / 10**6 #converte de ns para ms
-        state.results[col] = round(latency,2)
-    else:
-        state.results[col] = None
+    calc_latency(all_measures, result_key, test_size)
+
     state.server["channels"][CONTROL].send(END_LATENCY)
     if result_key != LATENCY:
         state.reset_loaded_latency(state.server)

@@ -1,8 +1,9 @@
-from constants import (LAT_ACK, LAT, ACK, END_ITERATION)
+from constants import (LAT_ACK, LAT, ACK, END_ITERATION, LATENCY, THROUGHPUT_LABELS)
 import time
 from utils import events_timeout, event_timeout
 import logging
 from state import state
+from statistics import mean, pstdev
 
 logger = logging.getLogger(__name__)
 
@@ -35,3 +36,17 @@ async def handle_server_latency_timeout(control_channel, timeout):
         if len(t1) < len(t0):          # só anexa None se estou devendo um t1 nesta iteração
             t1.append(None)
             control_channel.send(END_ITERATION)
+
+def calc_latency(all_measures, result_key, test_size):
+
+    latency_col = LATENCY if result_key == LATENCY else f"{THROUGHPUT_LABELS[test_size]}_loaded_latency"
+    jitter_col = "jitter" if result_key == LATENCY else f"{THROUGHPUT_LABELS[test_size]}_loaded_jitter"
+
+    if len(all_measures) > 0:
+        latency = round(mean(all_measures) / 10**6, 2) #10**6 #converte de ns para ms
+        jitter = round(pstdev(all_measures) / 10**6, 2)
+        state.results[latency_col] = latency
+        state.results[jitter_col] = jitter
+    else:
+        state.results[latency_col] = None
+        state.results[jitter_col] = None
