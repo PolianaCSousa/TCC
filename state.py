@@ -76,6 +76,7 @@ class PeerState:
             "loaded_latency_finished": asyncio.Event(),
             "package_loss_received": asyncio.Event(),
             "ack_package_loss_received": asyncio.Event(),
+            "throughput_buffer_drained": asyncio.Event(),
         }
     
     def t0_latency_key(self):

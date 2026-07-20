@@ -17,7 +17,7 @@ from constants import (
     MIN_THROUGHPUT_BytePerSec, BYTES_THROUGHPUT_10MB, START_THROUGHPUT,
     BYTES_THROUGHPUT_100KB, BYTES_THROUGHPUT_100MB, BYTES_THROUGHPUT_1MB,
     END_ITERATION, END_LAT_PACKAGES, END_PACKAGE_LOSS, ACK_PACKAGE_LOSS,
-    THROUGHPUT_LABELS
+    THROUGHPUT_LABELS, BUFFER_AMOUNT_LIMIT
 )
 from experiments.latency import(
     server_send_lat_ack,
@@ -211,6 +211,12 @@ def _register_client_throughput_channel_handlers():
         if state.client["qtd_packages"] == 0:
             state.client["t0_throughput"] = time.time()  # retorna o tempo em segundos
         state.client["qtd_packages"] = state.client["qtd_packages"] + 1
+    
+
+    @state.client["throughput_channel"].on("bufferedamountlow")
+    def on_throughput_buffer_amount_low():
+        state.events["throughput_buffer_drained"].set()
+
 
 
 def _register_client_package_loss_channel_handlers():
@@ -226,6 +232,7 @@ def _register_client_package_loss_channel_handlers():
 
 async def calculate_client_throughput(test_size):
     state.reset_for_test()
+    state.client["throughput_channel"].bufferedAmountLowThreshold = BUFFER_AMOUNT_LIMIT[test_size]
     await calculate_client_upload(test_size)
     await calculate_client_download(test_size)
     await event_timeout(state.events["test_complete"], test_size / MIN_THROUGHPUT_BytePerSec) #wait for the test finish completely
@@ -412,6 +419,10 @@ def _register_server_throughput_channel_handler():
             state.server["t0_throughput"] = time.time()  # retorna o tempo em segundos
         state.server["qtd_packages"] = state.server["qtd_packages"] + 1
 
+    @state.server["channels"][THROUGHPUT].on("bufferedamountlow")
+    def on_throughput_buffer_amount_low():
+        state.events["throughput_buffer_drained"].set()
+
 
 def _register_server_package_loss_channel_handler():
     @state.server["channels"][PACKAGE_LOSS].on("message")
@@ -498,18 +509,7 @@ def calculate_server_latency(qtd_tests, result_key=LATENCY, test_size=None):
     state.server["channels"][CONTROL].send(END_LATENCY)
     if result_key != LATENCY:
         state.reset_loaded_latency(state.server)
-
-
-'''def calculate_server_loaded_latency(qtd_tests, result_key):
-    lat_sum = 0
-    for i in range(qtd_tests):
-        lat_sum = lat_sum + (state.server["t1_loaded_latency"][i] - state.server["t0_loaded_latency"][i])
-    latency = (lat_sum / qtd_tests) / 10**6
-    state.results[result_key] = round(latency, 2)
-    state.reset_loaded_latency(state.server)'''
 # endregion
-
-
 
 
 # Função principal para iniciar o cliente e conectar

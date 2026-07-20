@@ -6,6 +6,7 @@ from constants import (
     SHORT_TIMEOUT, 
     BYTES_THROUGHPUT_10MB,
     THROUGHPUT,
+    BUFFER_AMOUNT_LIMIT,
     UPLOAD_ERROR,
     UPLOAD_RECEIVED,
     END_TEST,
@@ -31,6 +32,9 @@ async def send_throughput_data(throughput_channel, control_channel, PEER, test_s
         
         for i in range(0, qtd_pacotes):
             throughput_channel.send(package)
+            if throughput_channel.bufferedAmount > BUFFER_AMOUNT_LIMIT[test_size]:
+                state.events["throughput_buffer_drained"].clear()
+                await event_timeout(state.events["throughput_buffer_drained"], SHORT_TIMEOUT)
         control_channel.send(END_THROUGHPUT)
     except Exception as e:
         print(f'Erro no envio dos dados da vazão: {e}')
@@ -84,6 +88,7 @@ async def calculate_throughput(role, PEER, throughput_finished, timeout=5):
             state.client["control_channel"].send(UPLOAD_ERROR)
 
 async def calculate_server_upload(test_size):
+    state.server["channels"][THROUGHPUT].bufferedAmountLowThreshold = BUFFER_AMOUNT_LIMIT[test_size]
     await send_throughput_data(state.server["channels"][THROUGHPUT], state.server["channels"][CONTROL], state.server,
                                                      test_size)
             ## a task abaixo irá aguardar o evento upload_received ou upload_error
