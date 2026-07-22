@@ -1,3 +1,7 @@
+# --- peer status ---
+FREE = "FREE"
+OCCUPIED = "OCCUPIED"
+
 # --- label for channels ---
 CONTROL = "control"
 LATENCY = "latency"

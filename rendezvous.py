@@ -3,12 +3,9 @@ from aiohttp import web
 from typing import TypedDict
 import subprocess
 import atexit
-
-'''
-STATUS do peer:
-FREE
-OCCUPIED
-'''
+from constants import (
+    FREE, OCCUPIED
+)
 
 #create a Socket.IO server
 sio = socketio.AsyncServer()
@@ -33,7 +30,7 @@ async def connect(sid, environ, auth):
     peers.append({
         'role': None,
         'target': None,
-        'status': 'FREE',
+        'status': FREE,
         'sid': sid,
     })
 
@@ -42,7 +39,7 @@ async def connect(sid, environ, auth):
 async def client_connected(sid):
     print(f'debug - O cliente {sid} está pronto para receber o snapshot. Enviando...')
     await sio.emit('snapshot', {"snapshot": peers, "sid": sid}, to=sid)
-    await sio.emit('new_peer', {'role': None, 'target': None, 'status': None, 'sid': sid, }, skip_sid=sid)
+    await sio.emit('new_peer', {'role': None, 'target': None, 'status': FREE, 'sid': sid, }, skip_sid=sid)
 
 
 @sio.event
@@ -54,7 +51,7 @@ def disconnect(sid, reason):
 async def matchmaking(sid):
     print(f'Peer {sid} emitiu ready_to_start')
     for peer in peers:
-        if peer["sid"] != sid and peer["status"] == 'FREE':
+        if peer["sid"] != sid and peer["status"] == FREE:
             list_peer = peer
             oferer_peer = find_peer(sid)
             if oferer_peer["sid"] < list_peer["sid"]:
@@ -108,10 +105,10 @@ def find_peer(sid):
 def set_role_and_target(client, server):
     client["role"] = 'client'
     client["target"] = server["sid"]
-    client["status"] = 'OCCUPIED'
+    client["status"] = OCCUPIED
     server["role"] = 'server'
     server["target"] = client["sid"]
-    server["status"] = 'OCCUPIED'
+    server["status"] = OCCUPIED
 
 # Run the aiohttp server manually with a specific host and port
 if __name__ == "__main__":

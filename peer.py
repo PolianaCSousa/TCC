@@ -1,10 +1,13 @@
-from aiortc import RTCPeerConnection, RTCSessionDescription
+from aiortc import RTCPeerConnection, RTCSessionDescription, RTCConfiguration
 import asyncio
 import socketio
 import time
 import logging
 import colorlog
 import json
+from config import (
+    get_connection_configuration
+)
 from custom_types import Client, Server, Peer, Results
 from utils import try_parse_json, event_timeout, update_peers_list
 from storage import save_to_file
@@ -36,8 +39,16 @@ logger = logging.getLogger(__name__)
 
 # creat a Socket.IO client and a peer for WebRTC connection
 sio = socketio.AsyncClient()
-peer = RTCPeerConnection()
+ice_servers = get_connection_configuration()
+peer = RTCPeerConnection(configuration=RTCConfiguration(iceServers=ice_servers))
 server_peers: list[Peer] = []
+
+# debug for peer conection status
+@peer.on("connectionstatechange")
+async def on_state_change():
+    logger.info("Connection state: %s", peer.connectionState)
+    if peer.connectionState == "failed":
+        logger.error("ICE falhou — nenhum par de candidates funcionou.")
 
 
 # connect to server
@@ -54,7 +65,7 @@ async def disconnect():
 
 @sio.on("new_peer")
 async def new_peer_on_server(data):
-    server_peers.append(data)#ONDE PAREI: preciso adicionar timeout pra perda de pacote e testar 
+    server_peers.append(data)
     logger.debug("lista de pares do servidor: %s", server_peers)
 
 
@@ -91,10 +102,6 @@ async def start_test(data):
 
 # client runs this method to make his offer to peer server
 async def client_make_offer(target_name):
-    @peer.on("icecandidate")
-    def on_icecandidate(candidate):
-        print("Client ICE candidate:", candidate)
-
     _create_client_data_channels()
     await _create_and_send_sdp_offer(target_name)
     _register_client_control_channel_handlers()
