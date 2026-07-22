@@ -43,11 +43,29 @@ ice_servers = get_connection_configuration()
 peer = RTCPeerConnection(configuration=RTCConfiguration(iceServers=ice_servers))
 server_peers: list[Peer] = []
 
-# debug for peer conection status
+
+def get_selected_candidate_pair():
+    try:
+        connection = peer.sctp.transport.transport._connection
+        pair = connection._nominated.get(1)
+        if pair is None:
+            return None
+        local = pair.local_candidate
+        return {"local_ip": local.host, "local_type": local.type}
+    except (AttributeError, KeyError):
+        return None
+
+
 @peer.on("connectionstatechange")
 async def on_state_change():
     logger.info("Connection state: %s", peer.connectionState)
-    if peer.connectionState == "failed":
+    if peer.connectionState == "connected":
+        info = get_selected_candidate_pair()
+        if info:
+            state.results["ip"] = info["local_ip"]
+            state.results["candidate_type"] = info["local_type"]
+            logger.info("Candidate local: %s (%s)", info["local_ip"], info["local_type"])
+    elif peer.connectionState == "failed":
         logger.error("ICE falhou — nenhum par de candidates funcionou.")
 
 
@@ -72,7 +90,6 @@ async def new_peer_on_server(data):
 @sio.on("snapshot")
 async def server_snapshot(data):
     state.sid = data["sid"]
-    state.results["sid"] = state.sid
     logger.debug("meu sid é %s", state.sid)
     server_peers.extend(data["snapshot"])
 

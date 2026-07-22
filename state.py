@@ -39,7 +39,8 @@ class PeerState:
 
         self.results: Results = {
             "role": None,
-            "sid": None,
+            "ip": None,
+            "candidate_type": None,
             "latency": None,
             "jitter": None,
 
@@ -96,7 +97,7 @@ class PeerState:
 
     def reset_results(self):
         for key in self.results:
-            if key not in ("role", "sid"):
+            if key not in ("role", "ip", "candidate_type"):
                 self.results[key] = None
 
     def reset_for_test(self):

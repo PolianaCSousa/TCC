@@ -23,7 +23,7 @@ def save_to_file(results: Results):
 
 
 def save_to_db(results: Results, key_fields):
-    key_tags = ["role", "sid"]
+    key_tags = ["role", "ip", "candidate_type"]
     
     tags = dict()
     fields = dict()
