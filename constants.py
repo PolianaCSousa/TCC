@@ -1,6 +1,12 @@
 # --- peer status ---
 FREE = "FREE"
 OCCUPIED = "OCCUPIED"
+PAIRING = "PAIRING"
+PAIRED = "PAIRED"
+
+# --- peer roles ---
+CLIENT = "client"
+SERVER = "server"
 
 # --- label for channels ---
 CONTROL = "control"
@@ -64,3 +70,6 @@ SHORT_TIMEOUT = 12 * (_ACCEPTABLE_LATENCY_MS / 1000)  # criei esse timeout pra e
 
 # LATENCY_PROBE_INTERVAL = 0.001 # 10 ms
 LATENCY_PROBE_INTERVAL = 0.002 # 20 ms
+
+# IPFS topic name
+IPFS_TOPIC = "tcc-polics"

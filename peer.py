@@ -1,10 +1,11 @@
 from aiortc import RTCPeerConnection, RTCSessionDescription, RTCConfiguration
 import asyncio
-import socketio
 import time
 import logging
 import colorlog
 import json
+from kubo_client import KuboClient
+from ipfs_signaling import IpfsSignaling
 from config import (
     get_connection_configuration
 )
@@ -20,7 +21,7 @@ from constants import (
     MIN_THROUGHPUT_BytePerSec, BYTES_THROUGHPUT_10MB, START_THROUGHPUT,
     BYTES_THROUGHPUT_100KB, BYTES_THROUGHPUT_100MB, BYTES_THROUGHPUT_1MB,
     END_ITERATION, END_LAT_PACKAGES, END_PACKAGE_LOSS, ACK_PACKAGE_LOSS,
-    THROUGHPUT_LABELS, BUFFER_AMOUNT_LIMIT
+    THROUGHPUT_LABELS, BUFFER_AMOUNT_LIMIT, IPFS_TOPIC, CLIENT, SERVER
 )
 from experiments.latency import(
     server_send_lat_ack,
@@ -37,11 +38,11 @@ from experiments.throughput import(
 
 logger = logging.getLogger(__name__)
 
-# creat a Socket.IO client and a peer for WebRTC connection
-sio = socketio.AsyncClient()
+# creat a Kubo Client instance and a peer for WebRTC connection
+kubo = KuboClient()
+signaling = IpfsSignaling(kubo,IPFS_TOPIC)
 ice_servers = get_connection_configuration()
 peer = RTCPeerConnection(configuration=RTCConfiguration(iceServers=ice_servers))
-server_peers: list[Peer] = []
 
 
 def get_selected_candidate_pair():
@@ -69,56 +70,10 @@ async def on_state_change():
         logger.error("ICE falhou — nenhum par de candidates funcionou.")
 
 
-# connect to server
-@sio.event
-async def connect():
-    await sio.emit("connected")
-
-
-# disconnect from server
-@sio.event
-async def disconnect():
-    logger.info("Desconectado do servidor")
-
-
-@sio.on("new_peer")
-async def new_peer_on_server(data):
-    server_peers.append(data)
-    logger.debug("lista de pares do servidor: %s", server_peers)
-
-
-@sio.on("snapshot")
-async def server_snapshot(data):
-    state.sid = data["sid"]
-    logger.debug("meu sid é %s", state.sid)
-    server_peers.extend(data["snapshot"])
-
-    # after receveing the snapshot from server the peer needs to remove itself from it's local list
-    for peer in server_peers:
-        if (peer["sid"] == data["sid"]):
-            server_peers.remove(peer)
-    logger.debug("snapshot recebido e tratado: %s", server_peers)
-    await sio.emit("ready_to_start")
-
-
-@sio.on("role_defined")
-async def start_test(data):
-    state.role = data["role"]
-    state.results["role"] = state.role
-    logger.info("Sou o %s", state.role)
-
-    if state.role == "client":
-        update_peers_list(data["peer"], 'server', server_peers)
-        logger.debug("lista local atualizada: %s", server_peers)
-        target = data["peer"]["target"]
-        await client_make_offer(target_name=target)
-    else:
-        update_peers_list(data["peer"], 'client', server_peers)
-        logger.debug("lista local atualizada: %s", server_peers)
-
-
 # client runs this method to make his offer to peer server
 async def client_make_offer(target_name):
+    state.role = CLIENT
+    state.results["role"] = state.role
     _create_client_data_channels()
     await _create_and_send_sdp_offer(target_name)
     _register_client_control_channel_handlers()
@@ -126,13 +81,16 @@ async def client_make_offer(target_name):
     _register_client_throughput_channel_handlers()
     _register_client_package_loss_channel_handlers()
 
+signaling.on("role_defined", client_make_offer)
+
 
 # this method receives the answer from the server peer.
-@sio.on("answer")
 async def client_receives_answer(data):
     logger.info("answer do par servidor recebida no cliente")
     sdp = RTCSessionDescription(sdp=data["answer"]["sdp"], type=data["answer"]["type"])
     await peer.setRemoteDescription(sdp)  # this is the moment the connection is stablished
+
+signaling.on("answer", client_receives_answer)
 
 
 # region Client methods
@@ -149,14 +107,7 @@ async def _create_and_send_sdp_offer(target_name):
     await peer.setLocalDescription(offer)
 
     logger.info("oferta criada no par cliente")
-    # print(f'debug - sdp do peer: {peer.localDescription.sdp}')
-    await sio.emit("offer", {
-        "to": target_name,
-        "offer": {
-            "type": peer.localDescription.type,
-            "sdp": peer.localDescription.sdp
-        }
-    })
+    await signaling.send("offer", target_name, {"offer": {"type": peer.localDescription.type, "sdp": peer.localDescription.sdp}})
 
 
 def _register_client_control_channel_handlers():
@@ -192,9 +143,6 @@ def _register_client_control_channel_handlers():
             state.client["control_channel"].send(ACK_PACKAGE_LOSS)
             logger.info("Perda de pacotes do cliente: %s", state.results["package_loss"])
 
-        #else:
-            #print(f"[CONTROLE]\t {message}")
-
 
 def _register_client_latency_channel_handlers():
     @state.client["latency_channel"].on("open")
@@ -202,7 +150,7 @@ def _register_client_latency_channel_handlers():
         await client_latency(LATENCY_TEST_SIZE, LATENCY, LATENCY_PROBE_INTERVAL)
         state.client["control_channel"].send(END_LAT_PACKAGES)
         await calculate_client_latency(LATENCY_TEST_SIZE) #assim que o cliente termina de enviar ele ja pode calcular sem problema, o que nao pode acontecer é ele começar o teste de vazão antes do servidor terminar de calcular a latência dele
-        #quando o servidor terminar de salvar o resultado dele, ele envia o END_LATENCY e no canal de controle eu seto latency_finished
+
 
     @state.client["latency_channel"].on("message")
     def on_latency_message(message):
@@ -350,8 +298,9 @@ def client_calculates_server_package_loss():
 # endregion 
 
 # region Server Receives Offer
-@sio.on("offer")
 async def server_receives_offer(data):
+    state.role = SERVER
+    state.results["role"] = state.role
     logger.debug("offer recebida no server_peer")
     await _create_and_send_sdp_answer(data)
 
@@ -370,6 +319,7 @@ async def server_receives_offer(data):
             state.server["channels"][PACKAGE_LOSS] = received_channel
             _register_server_package_loss_channel_handler()
 # endregion
+signaling.on("offer", server_receives_offer)
 
 # region Server methods
 async def _create_and_send_sdp_answer(data):
@@ -379,14 +329,7 @@ async def _create_and_send_sdp_answer(data):
     answer = await peer.createAnswer()
     logger.debug("answer criada no server_peer")
     await peer.setLocalDescription(answer)
-
-    await sio.emit("answer", {
-        "to": data["from"],  # data["from"] é o sid do client_peer OK
-        "answer": {
-            "type": peer.localDescription.type,
-            "sdp": peer.localDescription.sdp
-        }
-    })
+    await signaling.send("answer", data["from"], {"answer": {"type": peer.localDescription.type, "sdp": peer.localDescription.sdp}})
 
 
 def _register_server_control_channel_handler():
@@ -551,17 +494,20 @@ async def main():
     logger.setLevel(logging.INFO)
     logging.getLogger("experiments").setLevel(logging.INFO)
 
-    # Conectando ao servidor
-    await sio.connect('http://localhost:5000')
 
-    # print("Conectando... Aguarde o canal ser estabelecido.")
+    # Inicializando o Client do Kubo
+    await kubo.start()
+    # Inicializar o signaling (se anunciar no IPFS)
+    await signaling.start()
 
+    # mantém o processo vivo enquanto o pareamento e o teste acontecem
     try:
-        await sio.wait()
-    except KeyboardInterrupt:
+        await asyncio.Event().wait() #gambiarra
+    except (KeyboardInterrupt, asyncio.CancelledError):
         print("\nSaindo...")
-        # control_task.cancel()
-        await sio.disconnect()
+    finally:
+        await signaling.close()
+        await kubo.close()
 
 
 if __name__ == "__main__":
