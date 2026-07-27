@@ -1,5 +1,6 @@
 from aiortc import RTCPeerConnection, RTCSessionDescription, RTCConfiguration
 import asyncio
+import os
 import time
 import logging
 import colorlog
@@ -39,7 +40,7 @@ from experiments.throughput import(
 logger = logging.getLogger(__name__)
 
 # creat a Kubo Client instance and a peer for WebRTC connection
-kubo = KuboClient()
+kubo = KuboClient(os.environ.get("KUBO_API", "http://127.0.0.1:5001"))
 signaling = IpfsSignaling(kubo,IPFS_TOPIC)
 ice_servers = get_connection_configuration()
 peer = RTCPeerConnection(configuration=RTCConfiguration(iceServers=ice_servers))
