@@ -22,7 +22,7 @@ from constants import (
     MIN_THROUGHPUT_BytePerSec, BYTES_THROUGHPUT_10MB, START_THROUGHPUT,
     BYTES_THROUGHPUT_100KB, BYTES_THROUGHPUT_100MB, BYTES_THROUGHPUT_1MB,
     END_ITERATION, END_LAT_PACKAGES, END_PACKAGE_LOSS, ACK_PACKAGE_LOSS,
-    THROUGHPUT_LABELS, BUFFER_AMOUNT_LIMIT, IPFS_TOPIC, CLIENT, SERVER
+    THROUGHPUT_LABELS, BUFFER_AMOUNT_LIMIT, IPFS_TOPIC, CLIENT, SERVER, TEST_INTERVAL_SECONDS
 )
 from experiments.latency import(
     server_send_lat_ack,
@@ -43,7 +43,14 @@ logger = logging.getLogger(__name__)
 kubo = KuboClient(os.environ.get("KUBO_API", "http://127.0.0.1:5001"))
 signaling = IpfsSignaling(kubo,IPFS_TOPIC)
 ice_servers = get_connection_configuration()
-peer = RTCPeerConnection(configuration=RTCConfiguration(iceServers=ice_servers))
+peer = None
+
+async def new_peer_connection():
+    global peer
+    if peer is not None:
+        await peer.close()
+    peer = RTCPeerConnection(configuration=RTCConfiguration(iceServers=ice_servers))
+    peer.on("connectionstatechange", on_state_change)
 
 
 def get_selected_candidate_pair():
@@ -58,7 +65,6 @@ def get_selected_candidate_pair():
         return None
 
 
-@peer.on("connectionstatechange")
 async def on_state_change():
     logger.info("Connection state: %s", peer.connectionState)
     if peer.connectionState == "connected":
@@ -287,6 +293,7 @@ async def client_package_loss():
         state.results["package_loss"] = None
     save_to_file(state.results)
     state.reset_results()
+    state.events["round_done"].set()
 
 def client_calculates_server_package_loss():
     received_packages = state.client["received_packages"]
@@ -421,6 +428,7 @@ async def server_package_loss():
         state.results["package_loss"] = None
     save_to_file(state.results)
     state.reset_results()
+    state.events["round_done"].set()
 
 #acho que nao preciso chamar o calculate_server lataency depois de cada downlaod. EU tenho que chamar quando o ultimo pacote tiver chegando, e eu so sei disso pelo canal de controle
 async def _calculate_server_download():
@@ -489,8 +497,14 @@ async def main():
             "CRITICAL": "bold_red",
         }
     ))
+    # arquivo de log por peer (nome derivado da porta do Kubo)
+    os.makedirs("logs", exist_ok=True)
+    porta = kubo.api_url.rsplit(":", 1)[-1]
+    file_handler = logging.FileHandler(f"logs/peer_{porta}.log", mode="w")
+    file_handler.setFormatter(logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
     # raiz silenciosa (só WARNING+ das libs externas como aiortc/aioice)
-    logging.basicConfig(level=logging.WARNING, handlers=[handler])
+    logging.basicConfig(level=logging.WARNING, handlers=[handler, file_handler])
     # libera só o meu módulo
     logger.setLevel(logging.INFO)
     logging.getLogger("experiments").setLevel(logging.INFO)
@@ -498,12 +512,20 @@ async def main():
 
     # Inicializando o Client do Kubo
     await kubo.start()
+    await new_peer_connection()
     # Inicializar o signaling (se anunciar no IPFS)
     await signaling.start()
 
-    # mantém o processo vivo enquanto o pareamento e o teste acontecem
+    # loop daemon: roda testes em ciclo, com intervalo entre eles
     try:
-        await asyncio.Event().wait() #gambiarra
+        while True:
+            await state.events["round_done"].wait()      # espera a rodada terminar
+            state.events["round_done"].clear()
+            logger.info("Rodada concluída. Aguardando %ss até a próxima...", TEST_INTERVAL_SECONDS)
+            await asyncio.sleep(TEST_INTERVAL_SECONDS)
+            await new_peer_connection()                   # fecha a conexão antiga + cria a nova
+            state.reset_for_new_round()                   # limpa acumuladores/latency_type
+            signaling.reset_for_new_round()               # volta o signaling pra FREE → repareia
     except (KeyboardInterrupt, asyncio.CancelledError):
         print("\nSaindo...")
     finally:

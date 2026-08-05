@@ -83,6 +83,7 @@ class PeerState:
             "package_loss_received": asyncio.Event(),
             "ack_package_loss_received": asyncio.Event(),
             "throughput_buffer_drained": asyncio.Event(),
+            "round_done": asyncio.Event(),
         }
     
     def t0_latency_key(self):
@@ -106,6 +107,24 @@ class PeerState:
         self.events["throughput_finished"].clear()
         self.events["test_complete"].clear()
         self.events["upload_error"].clear()
+
+    def reset_for_new_round(self):
+        for event in self.events.values():
+            event.clear()
+        self.latency_type = "unloaded"
+        for peer in (self.client, self.server):
+            for key in ("t0_latency", "t1_latency", "t0_loaded_latency", "t1_loaded_latency"):
+                peer[key].clear()
+            peer["t0_throughput"] = None
+            peer["t1_throughput"] = None
+            peer["received_packages"] = 0
+            peer["qtd_packages"] = 0
+            peer["qtd_total_bytes"] = 0
+        self.client["control_channel"] = None
+        self.client["throughput_channel"] = None
+        self.client["latency_channel"] = None
+        self.client["package_loss_channel"] = None
+        self.server["channels"] = {}
 
 
 state = PeerState()

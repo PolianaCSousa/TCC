@@ -164,6 +164,7 @@ class IpfsSignaling:
         self.status = PAIRED
         await self._finish_pairing()
 
+
     async def _on_pair_reject(self, data):
         if data.get("to") != self.my_id or self.status != PAIRING:
             return
@@ -171,10 +172,18 @@ class IpfsSignaling:
             return
         self._reset_to_free()   # recusado → volto a livre; o próximo announce me faz reescolher
 
+
     def _reset_to_free(self):
         self.status = FREE
         self.partner = None
         self.role = None
+
+
+    def reset_for_new_round(self):
+        # volta ao estado de uma nova rodada: livre, sem par, pronto pra reparear
+        self._reset_to_free()
+        self.paired.clear()
+
 
     async def _pair_timeout(self, expected_partner):
         await asyncio.sleep(PAIR_TIMEOUT)
