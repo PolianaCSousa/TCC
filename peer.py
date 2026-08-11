@@ -498,7 +498,7 @@ async def main():
         }
     ))
     # arquivo de log por peer (nome derivado da porta do Kubo)
-    #os.makedirs("logs", exist_ok=True)
+    os.makedirs("logs", exist_ok=True)
     porta = kubo.api_url.rsplit(":", 1)[-1]
     file_handler = logging.FileHandler(f"logs/peer_{porta}.log", mode="w")
     file_handler.setFormatter(logging.Formatter(
