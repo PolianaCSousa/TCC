@@ -13,8 +13,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY *.py ./
-COPY experiments ./experiments
+COPY *.py /app/
+COPY experiments /app/experiments
+
 
 # usuário não-root com o mesmo UID/GID do dono de ./data no host,
 # senão o results.csv sai pertencendo ao root e você não consegue editar

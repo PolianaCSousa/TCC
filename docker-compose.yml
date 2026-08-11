@@ -96,7 +96,7 @@ services:
       # TEST_INTERVAL_SECONDS: ${TEST_INTERVAL_SECONDS:-30}
       # PEER_NAME: ${PEER_NAME:-peer1}
     volumes:
-      - ./data/peer1:/data        # results.csv + logs/
+      - ./data/peer:/data        # results.csv + logs/
     # sem ports: e sem cpus:/mem_limit: — limitar CPU enviesa a vazão medida
 
 volumes:
