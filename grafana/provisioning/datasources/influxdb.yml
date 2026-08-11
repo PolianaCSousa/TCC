@@ -1,0 +1,19 @@
+apiVersion: 1
+
+datasources:
+  - name: InfluxDB
+    # uid fixo: é por ele que o JSON dos dashboards referencia esta fonte. Se
+    # ficasse a cargo do Grafana, cada máquina sortearia um e os painéis
+    # versionados abririam com "datasource not found" nas outras instalações.
+    uid: influxdb
+    type: influxdb
+    access: proxy
+    isDefault: true
+    # nome do serviço: o grafana está na rede padrão do compose, não em host mode
+    url: http://influxdb:8086
+    jsonData:
+      version: Flux
+      organization: ${INFLUXDB_ORG}
+      defaultBucket: ${INFLUXDB_BUCKET}
+    secureJsonData:
+      token: ${INFLUXDB_TOKEN}

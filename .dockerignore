@@ -1,0 +1,12 @@
+# nunca entra na imagem: os tokens ficam no ambiente, não assados na camada
+.env
+
+venv/
+__pycache__/
+*.py[cod]
+.git/
+.idea/
+logs/
+data/
+results.csv
+docker-compose.yml
