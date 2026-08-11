@@ -75,4 +75,4 @@ LATENCY_PROBE_INTERVAL = 0.002 # 20 ms
 IPFS_TOPIC = "tcc-polics"
 
 # intervalo (segundos) entre o fim de um teste e o próximo pareamento (daemon)
-TEST_INTERVAL_SECONDS = 30
+TEST_INTERVAL_SECONDS = 30 
