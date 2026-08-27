@@ -11,7 +11,12 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-RUN wget https://dist.ipfs.tech/kubo/v0.42.0/kubo_v0.42.0_linux-amd64.tar.gz && tar -xvzf kubo_v0.42.0_linux-amd64.tar.gz && cd kubo && bash install.sh && cd .. && ipfs --version && ipfs init && ipfs config --json Pubsub.Enabled true
+RUN wget https://dist.ipfs.tech/kubo/v0.42.0/kubo_v0.42.0_linux-amd64.tar.gz
+RUN tar -xvzf kubo_v0.42.0_linux-amd64.tar.gz
+RUN cd kubo && sh install.sh && cd .. 
+RUN ipfs --version 
+RUN ipfs init 
+RUN ipfs config --json Pubsub.Enabled true
 
 COPY *.py /app/
 COPY experiments /app/experiments
