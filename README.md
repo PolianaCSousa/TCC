@@ -118,11 +118,13 @@ O programa roda em **loop**: termina uma rodada de testes, espera 30 segundos e 
 No **Terminal 2**, enquanto tudo roda:
 
 ```bash
-# lista os PeerIDs dos outros nós inscritos no tópico
-ipfs pubsub peers tcc-polics
 
 # ou acompanhe as mensagens ao vivo (announce, pair_request, pair_accept)
 ipfs pubsub sub tcc-polics
+
+# lista os PeerIDs dos outros nós inscritos no tópico
+ipfs pubsub peers tcc-polics
+
 ```
 
 Se `pubsub peers` vier vazio, na ordem: confirme que o `peer.py` do **outro lado** está rodando (quem assina o tópico é a aplicação, não o daemon sozinho); espere até ~2 minutos pela descoberta automática na DHT; e só então force com o `swarm connect` do passo 7.
