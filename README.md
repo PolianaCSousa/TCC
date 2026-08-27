@@ -29,6 +29,7 @@ tar -xvzf kubo_v0.42.0_linux-amd64.tar.gz
 cd kubo
 sudo bash install.sh
 ipfs --version    # deve mostrar: ipfs version 0.42.0
+cd ..
 ```
 
 ## 3. Instalar o projeto
