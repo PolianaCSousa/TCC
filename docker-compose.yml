@@ -1,21 +1,21 @@
 name: tcc-p2p
 # cada container tem sua propria rede isolada, mas eu consigo criar uma rede para todos usando network (raramente é necessário - verificar com Claude)
 services:
-  ipfs:
-    image: ipfs/kubo:v0.42.0 
-    restart: unless-stopped
-    volumes:
-      - ipfs-data:/data/ipfs
-      - ./docker/ipfs/001-enable-pubsub.sh:/container-init.d/001-enable-pubsub.sh:ro
-    ports:
-      - "4001:4001/tcp"           # libp2p
-      - "4001:4001/udp"           # libp2p via QUIC
-      - "127.0.0.1:5001:5001"     # RPC = admin sem autenticação: NUNCA em 0.0.0.0
-    healthcheck:
-      test: ["CMD-SHELL", "ipfs --api=/ip4/127.0.0.1/tcp/5001 swarm peers >/dev/null 2>&1 || exit 1"]
-      interval: 10s
-      retries: 6
-      start_period: 30s
+  #ipfs:
+  #  image: ipfs/kubo:v0.42.0 
+  #  restart: unless-stopped
+  #  volumes:
+  #    - ipfs-data:/data/ipfs
+  #    - ./docker/ipfs/001-enable-pubsub.sh:/container-init.d/001-enable-pubsub.sh:ro
+  #  ports:
+  #    - "4001:4001/tcp"           # libp2p
+  #    - "4001:4001/udp"           # libp2p via QUIC
+  #    - "127.0.0.1:5001:5001"     # RPC = admin sem autenticação: NUNCA em 0.0.0.0
+  #  healthcheck:
+  #    test: ["CMD-SHELL", "ipfs --api=/ip4/127.0.0.1/tcp/5001 swarm peers >/dev/null 2>&1 || exit 1"]
+  #    interval: 10s
+  #    retries: 6
+  #    start_period: 30s
 
 #env_file:
 #- /caminho/para/o/seu/.env_externo
@@ -79,7 +79,7 @@ services:
     # irrelevante para latência e vazão, mas registre na metodologia, porque a
     # camada extra de NAT pode influenciar o candidate_type.
     depends_on:
-      ipfs:     { condition: service_healthy }
+      #ipfs:     { condition: service_healthy }
       influxdb: { condition: service_healthy }
     environment:
       KUBO_API: http://ipfs:5001    # nome do serviço: o Compose resolve como DNS
@@ -100,7 +100,7 @@ services:
     # sem ports: e sem cpus:/mem_limit: — limitar CPU enviesa a vazão medida
 
 volumes:
-  ipfs-data:
+ #ipfs-data:
   influx-data:
   influx-config:
   grafana-data:

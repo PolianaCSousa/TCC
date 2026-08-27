@@ -1,7 +1,6 @@
 FROM python:3.12-slim
 
 
-
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
@@ -12,8 +11,13 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+RUN wget https://dist.ipfs.tech/kubo/v0.42.0/kubo_v0.42.0_linux-amd64.tar.gz && tar -xvzf kubo_v0.42.0_linux-amd64.tar.gz && cd kubo && bash install.sh && cd .. && ipfs --version && ipfs init && ipfs config --json Pubsub.Enabled true
+
 COPY *.py /app/
 COPY experiments /app/experiments
+
+COPY run-ipfs-and-peer.sh /app/run-ipfs-and-peer.sh
+RUN chmod +x /app/run-ipfs-and-peer.sh
 
 RUN mkdir -p /data
 
@@ -21,4 +25,7 @@ RUN mkdir -p /data
 # ser o volume montado. O código continua em /app: como o peer.py está lá, o
 # Python resolve os imports a partir de /app mesmo com o CWD em /data.
 WORKDIR /data
-CMD ["python", "/app/peer.py"]
+# CMD ["python", "/app/peer.py"]
+
+# The script handles launching the background service
+ENTRYPOINT ["/app/run-ipfs-and-peer.sh"]
