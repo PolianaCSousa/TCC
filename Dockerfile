@@ -10,13 +10,17 @@ WORKDIR /app
 # não a cada alteração no .py
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-RUN apt update ; apt install wget
-RUN wget https://dist.ipfs.tech/kubo/v0.42.0/kubo_v0.42.0_linux-amd64.tar.gz
-RUN tar -xvzf kubo_v0.42.0_linux-amd64.tar.gz
-RUN cd kubo && sh install.sh && cd .. 
-RUN ipfs --version 
-RUN ipfs init 
-RUN ipfs config --json Pubsub.Enabled true
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends wget 
+
+RUN wget https://dist.ipfs.tech/kubo/v0.42.0/kubo_v0.42.0_linux-amd64.tar.gz && \
+    tar -xvzf kubo_v0.42.0_linux-amd64.tar.gz && \
+    cd kubo && sh install.sh && cd ..  && \
+    ipfs --version 
+
+RUN ipfs init  && \
+    ipfs config --json Pubsub.Enabled true
 
 COPY *.py /app/
 COPY experiments /app/experiments
