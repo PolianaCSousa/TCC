@@ -34,7 +34,10 @@ RUN mkdir -p /data
 # ser o volume montado. O código continua em /app: como o peer.py está lá, o
 # Python resolve os imports a partir de /app mesmo com o CWD em /data.
 WORKDIR /data
-# CMD ["python", "/app/peer.py"]
+
 
 # The script handles launching the background service
 ENTRYPOINT ["/app/run-ipfs-and-peer.sh"]
+
+# o CMD que era o comando que estava aqui mantém o container aberto
+CMD ["python", "/app/peer.py"]
