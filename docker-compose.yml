@@ -82,7 +82,7 @@ services:
       #ipfs:     { condition: service_healthy }
       influxdb: { condition: service_healthy }
     environment:
-      KUBO_API: http://ipfs:5001    # nome do serviço: o Compose resolve como DNS
+      #KUBO_API: http://ipfs:5001    # nome do serviço: o Compose resolve como DNS
       INFLUXDB_URL: http://influxdb:8086
       INFLUXDB_ORG: ${INFLUXDB_ORG}
       INFLUXDB_BUCKET: ${INFLUXDB_BUCKET}

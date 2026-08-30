@@ -19,8 +19,11 @@ RUN wget https://dist.ipfs.tech/kubo/v0.42.0/kubo_v0.42.0_linux-amd64.tar.gz && 
     cd kubo && sh install.sh && cd ..  && \
     ipfs --version 
 
-RUN ipfs init  && \
-    ipfs config --json Pubsub.Enabled true
+# o `ipfs init` NÃO pode rodar aqui: no build ele grava a chave privada numa camada
+# da imagem, e todo container criado a partir dela nasceria com o mesmo PeerID.
+# Foi movido pro run-ipfs-and-peer.sh, junto com o config do Pubsub.
+
+RUN apt install -y wget curl 
 
 COPY *.py /app/
 COPY experiments /app/experiments
@@ -37,7 +40,12 @@ WORKDIR /data
 
 
 # The script handles launching the background service
-ENTRYPOINT ["/app/run-ipfs-and-peer.sh"]
+ENTRYPOINT ["/app/run-ipfs-and-peer.sh"] 
+#pode ser que o entrypoint não esteja 100% certo tambem. 
 
 # o CMD que era o comando que estava aqui mantém o container aberto
-CMD ["python", "/app/peer.py"]
+#CMD ["python", "/app/peer.py"]
+
+
+#atualmente o estado atual é: instalar o ipfs dentro do proprio container do peer. Removemos o serviço
+#do ipfs do docker-compose, mas pode ser que alguma coisa esteja faltando. Verificar.
