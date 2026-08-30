@@ -33,9 +33,12 @@ class KuboClient:
     async def pubsub_sub(self, topic):
         encoded_topic = self.encode_topic(topic)
         params = { "arg": encoded_topic }
+            # o timeout padrao do aiohttp e total=300s, o que mataria esse stream aos
+        # 5 minutos: a inscricao precisa ficar aberta indefinidamente.
         async with self.session.post(
             self.api_url + "/api/v0/pubsub/sub",
             params=params,
+            timeout=aiohttp.ClientTimeout(total=None, sock_connect=30),
         ) as response:
             async for line in response.content:
                 line = line.strip()
