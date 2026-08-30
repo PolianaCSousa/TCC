@@ -95,9 +95,15 @@ services:
       # IPFS_TOPIC: ${IPFS_TOPIC:-tcc-polics}
       # TEST_INTERVAL_SECONDS: ${TEST_INTERVAL_SECONDS:-30}
       # PEER_NAME: ${PEER_NAME:-peer1}
+    ports:
+      # o swarm do libp2p precisa de caminho de entrada: sem isso o daemon só
+      # escuta em 172.18.0.x, os dois peers ficam dial-only e nunca se conectam.
+      # veio do serviço ipfs antigo e se perdeu quando o kubo migrou pra cá.
+      - "4001:4001/tcp"          # libp2p
+      - "4001:4001/udp"          # libp2p via QUIC
     volumes:
       - ./data/peer:/data        # results.csv + logs/
-    # sem ports: e sem cpus:/mem_limit: — limitar CPU enviesa a vazão medida
+    # sem cpus:/mem_limit: — limitar CPU enviesa a vazão medida
 
 volumes:
  #ipfs-data:
