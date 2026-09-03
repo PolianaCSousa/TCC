@@ -6,30 +6,31 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+RUN apt-get update
+RUN apt-get install -y --no-install-recommends \
+    git wget curl 
+    #python3 python3-venv python3-pip 
+
+    
 # requirements primeiro: só reinstala as libs quando esse arquivo muda,
 # não a cada alteração no .py
-COPY requirements.txt .
+COPY requirements.txt /app
+RUN cd /app && python3 -m venv venv && source venv/bin/activate
 RUN pip install --no-cache-dir -r requirements.txt
-
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends wget 
+    
+# Só se o `pip install` falhar compilando o `aiortc`:** normalmente ele instala por wheel pré-compilado e nada abaixo é necessário. Se der erro de compilação, instale as libs de mídia e tente de novo:
+# RUN apt install -y --no-install-recommends build-essential python3-dev pkg-config libavdevice-dev libavfilter-dev libopus-dev libvpx-dev libsrtp2-dev
 
 RUN wget https://dist.ipfs.tech/kubo/v0.42.0/kubo_v0.42.0_linux-amd64.tar.gz && \
     tar -xvzf kubo_v0.42.0_linux-amd64.tar.gz && \
     cd kubo && sh install.sh && cd ..  && \
     ipfs --version 
 
-# o `ipfs init` NÃO pode rodar aqui: no build ele grava a chave privada numa camada
-# da imagem, e todo container criado a partir dela nasceria com o mesmo PeerID.
-# Foi movido pro run-ipfs-and-peer.sh, junto com o config do Pubsub.
+RUN git clone -b dockerfile https://github.com/PolianaCSousa/TCC.git /app
+# RUN cd /app && python3 -m venv venv && source venv/bin/activate
+# RUN pip install --no-cache-dir -r requirements.txt
 
-RUN apt install -y wget curl 
-
-COPY *.py /app/
-COPY experiments /app/experiments
-
-COPY run-ipfs-and-peer.sh /app/run-ipfs-and-peer.sh
-RUN chmod +x /app/run-ipfs-and-peer.sh
+RUN chmod +x /app/entrypoint.sh
 
 RUN mkdir -p /data
 
@@ -40,12 +41,7 @@ WORKDIR /data
 
 
 # The script handles launching the background service
-ENTRYPOINT ["/app/run-ipfs-and-peer.sh"] 
-#pode ser que o entrypoint não esteja 100% certo tambem. 
-
-# o CMD que era o comando que estava aqui mantém o container aberto
-#CMD ["python", "/app/peer.py"]
-
+ENTRYPOINT ["/app/entrypoint.sh"] 
 
 #atualmente o estado atual é: instalar o ipfs dentro do proprio container do peer. Removemos o serviço
 #do ipfs do docker-compose, mas pode ser que alguma coisa esteja faltando. Verificar.

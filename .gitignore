@@ -12,7 +12,7 @@ results.csv
 logs/
 
 # Variáveis de ambiente / segredos
-.env
+#.env
 
 # IDE
 .idea/
