@@ -18,6 +18,15 @@ while ! curl -sf -X POST http://127.0.0.1:5001/api/v0/version > /dev/null; do
     sleep 1
 done    
 
+## DEBUG 
+# ipfs pubsub sub tcc-polics > /data/pubsub_tcc-polics.log &
+#watch -n 1 sh -c 'ipfs pubsub peers tcc-polics >> /data/peers_tcc-polics.log' & 
+
+source /app/.env
+
+## TODO copiar do main do peer
+# systemctl start grafana
+# systemctl start influxdb
+
 # Start your main foreground application (keeps container alive)
 exec python3 /app/peer.py
-#exec "$@"

@@ -70,6 +70,7 @@ services:
       args:
         APP_UID: ${APP_UID:-1000}
         APP_GID: ${APP_GID:-1000}
+    network_mode: host
     image: tcc-peer:latest
     restart: unless-stopped
     init: true                    # PID 1 de verdade: repassa SIGTERM ao Python
