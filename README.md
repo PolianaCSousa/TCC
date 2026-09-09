@@ -1,206 +1,214 @@
-# TCC — Benchmark de rede P2P via WebRTC com sinalização IPFS
+# TCC — Benchmark de rede P2P
 
-Dois computadores em redes diferentes se encontram por **pubsub do IPFS**, negociam uma conexão **WebRTC** direta e medem latência, latência carregada, vazão e perda de pacotes entre si. Os resultados saem em `results.csv` na máquina de cada um.
+Ferramenta que mede a qualidade da conexão entre dois computadores quaisquer na
+internet, sem servidor no meio. Dois peers se encontram sozinhos, abrem uma
+conexão WebRTC direta e medem latência, latência sob carga, vazão e perda de
+pacotes. Os resultados vão para um CSV e para um banco de séries temporais, e
+você os visualiza no Grafana.
 
-Este guia é para **Linux**. Testado em Ubuntu com Python 3.12 e Kubo 0.42.0.
-
----
-
-## 1. Dependências do sistema
-
-```bash
-sudo apt update
-sudo apt install -y python3 python3-venv python3-pip git wget
-```
-
-Versões mínimas: **Python 3.10+** (recomendado 3.12).
-
-> **Só se o `pip install` falhar compilando o `aiortc`:** normalmente ele instala por wheel pré-compilado e nada abaixo é necessário. Se der erro de compilação, instale as libs de mídia e tente de novo:
-> ```bash
-> sudo apt install -y build-essential python3-dev pkg-config \
->   libavdevice-dev libavfilter-dev libopus-dev libvpx-dev libsrtp2-dev
-> ```
-
-## 2. Instalar o IPFS (Kubo)
-
-```bash
-wget https://dist.ipfs.tech/kubo/v0.42.0/kubo_v0.42.0_linux-amd64.tar.gz
-tar -xvzf kubo_v0.42.0_linux-amd64.tar.gz
-cd kubo
-sudo bash install.sh
-ipfs --version    # deve mostrar: ipfs version 0.42.0
-cd ..
-```
-
-## 3. Instalar o projeto
-
-```bash
-git clone <URL-DO-REPO> TCC
-cd TCC
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
-
-O `venv/` **não** vem no repositório — cada máquina cria o seu.
-
-## 4. Criar o arquivo `.env`
-
-O `.env` é ignorado pelo git, então precisa ser criado à mão na raiz do projeto:
-
-```bash
-TURN_API_KEY=<peça a chave para a Poliana>
-```
-
-Só isso é obrigatório. As variáveis de InfluxDB não são necessárias — a escrita no banco está desativada ([storage.py](storage.py)), os resultados vão só para o CSV.
-
-Sem a `TURN_API_KEY` o programa ainda roda, mas cai só no STUN do Google: se as duas pontas estiverem atrás de NAT restritivo, a conexão WebRTC pode falhar.
+> **Status:** a stack em Docker ainda não foi executada de ponta a ponta. Veja
+> [Pendências conhecidas](#pendências-conhecidas) antes de abrir uma issue.
 
 ---
 
-## 5. Configurar o nó IPFS (uma vez só)
+## Como funciona
 
-```bash
-ipfs init
-ipfs config --json Pubsub.Enabled true
-```
+Sobem quatro containers:
 
-Se a máquina já tinha um `ipfs init` feito antes, rode só a linha do `Pubsub`.
-
-## 6. Subir o daemon IPFS
-
-**Terminal 1** — deixe rodando durante todo o experimento:
-
-```bash
-ipfs daemon
-```
-
-Espere aparecer `Daemon is ready`.
-
-## 7. Conectar os dois nós (opcional — atalho)
-
-**Normalmente não é preciso fazer nada aqui.** Quando o `peer.py` assina o tópico, o Kubo anuncia na DHT pública que aquele nó participa de `tcc-polics` e procura os outros que anunciaram o mesmo. A descoberta é automática, mas pode levar de alguns segundos a poucos minutos.
-
-Se depois de uns 2 minutos os dois ainda não se enxergarem (veja o passo 9), force a conexão. Cada um pega o próprio PeerID:
-
-```bash
-ipfs id -f='<id>\n'
-```
-
-Troquem os IDs (WhatsApp, e-mail, tanto faz). Aí **um dos dois** conecta no outro:
-
-```bash
-ipfs swarm connect /p2p/<PEER_ID_DO_OUTRO>
-```
-
-Deve responder `connect <PEER_ID> success`. A conexão é bidirecional — basta um lado fazer.
-
-Se falhar, veja [Problemas comuns](#problemas-comuns) no fim.
-
-## 8. Rodar a aplicação
-
-**Terminal 3**, com o daemon já no ar:
-
-```bash
-cd ~/TCC          # ajuste para onde você clonou
-source venv/bin/activate
-python3 peer.py
-```
-
-Os dois lados precisam estar rodando `peer.py` ao mesmo tempo. Quem faz papel de cliente e quem faz de servidor é decidido automaticamente pelo pareamento.
-
-O programa roda em **loop**: termina uma rodada de testes, espera 30 segundos e pareia de novo. Encerre com `Ctrl+C` quando quiser.
-
----
-
-## 9. Conferir se os pares se acharam
-
-No **Terminal 2**, enquanto tudo roda:
-
-```bash
-
-# ou acompanhe as mensagens ao vivo (announce, pair_request, pair_accept)
-ipfs pubsub sub tcc-polics
-
-# lista os PeerIDs dos outros nós inscritos no tópico
-ipfs pubsub peers tcc-polics
-
-```
-
-Se `pubsub peers` vier vazio, na ordem: confirme que o `peer.py` do **outro lado** está rodando (quem assina o tópico é a aplicação, não o daemon sozinho); espere até ~2 minutos pela descoberta automática na DHT; e só então force com o `swarm connect` do passo 7.
-
-No terminal do `peer.py`, o sinal de que deu certo é a sequência:
-
-```
-oferta criada no par cliente
-answer do par servidor recebida no cliente
-Connection state: connected
-Candidate local: <IP> (host|srflx|relay)
-```
-
-## 10. Onde ficam os resultados
-
-| Arquivo | Conteúdo |
+| Container | Papel |
 |---|---|
-| `results.csv` | uma linha por rodada, com latência (ms), jitter (ms), vazão (Mbps) e perda de pacotes (%) |
-| `logs/peer_5001.log` | log completo daquele peer (o número é a porta da API do Kubo) |
+| `ipfs` | rendezvous — é por onde os peers se descobrem e trocam a negociação da conexão |
+| `peer` | o benchmark em si: acha um par, conecta e roda os testes |
+| `influxdb` | guarda as medições como série temporal |
+| `grafana` | mostra os gráficos |
 
-Ambos são gerados localmente e estão no `.gitignore`. Ao final do experimento, **mande o seu `results.csv` para a Poliana**.
+O ciclo de uma rodada:
 
----
+1. O peer anuncia sua presença a cada 2 segundos num tópico público do IPFS
+   (`tcc-polics`), informando seu status e o **ASN** — o número que identifica o
+   provedor de internet dele.
+2. Ao ver outro peer livre, escolhe um parceiro. A preferência é por alguém de
+   **ASN diferente**, ou seja, de outro provedor; só cai para o mesmo ASN se não
+   houver outra opção. É o que torna a medição interessante: mede-se o caminho
+   entre operadoras, não dentro da mesma.
+3. Os dois combinam quem é cliente e quem é servidor, trocam oferta e resposta
+   WebRTC pelo próprio IPFS, e abrem a conexão direta.
+4. Sobem quatro canais de dados — controle, latência, vazão e perda de pacotes —
+   e os testes rodam em sequência, incluindo latência medida com o link saturado.
+5. O resultado é gravado no `results.csv` e no InfluxDB.
+6. O peer espera 30 segundos, volta a ficar livre e procura um novo par.
 
-## Problemas comuns
-
-**`ModuleNotFoundError: No module named 'aiortc'`**
-Você rodou com o Python do sistema. Ative o venv antes: `source venv/bin/activate`.
-
-**`Error: this action must be run in online mode` ou `connection refused` na porta 5001**
-O daemon não está no ar. Volte ao passo 6.
-
-**`ipfs swarm connect` falha com `no good addresses` / `context deadline exceeded`**
-O DHT ainda não achou o endereço do outro nó. Alternativas, em ordem:
-1. Espere ~1 minuto depois de subir o daemon e tente de novo.
-2. O outro lado roda `ipfs id` e manda o multiaddr público completo (uma linha do campo `Addresses` que comece com um IP público, não `127.0.0.1` nem `192.168.x.x`), e você conecta nele diretamente:
-   ```bash
-   ipfs swarm connect /ip4/<IP_PUBLICO>/tcp/4001/p2p/<PEER_ID>
-   ```
-3. Se ambos estiverem atrás de NAT fechado, libere/encaminhe a porta **4001 (TCP e UDP)** no roteador de pelo menos um dos dois.
-
-**Os peers se acham no pubsub mas o WebRTC fica em `failed`**
-ICE não conseguiu nenhum caminho. Confirme que a `TURN_API_KEY` está no `.env` — sem TURN, NATs simétricos não fecham conexão.
-
-**Os testes nunca começam, só ficam anunciando**
-O pareamento prefere parceiros de **ASN diferente** ([ipfs_signaling.py](ipfs_signaling.py)), que é justamente o caso de vocês em provedores diferentes. Se mesmo assim não pareia, confirme com `ipfs pubsub peers tcc-polics` que os dois estão no tópico.
-
-**A descoberta automática demora ou não acontece**
-O Kubo faz a descoberta de peers do tópico pela DHT (`TopicDiscovery`), com *backoff* nas retentativas — a primeira busca é rápida, mas se ela falhar, a próxima só vem depois de cerca de 1 minuto. Ou seja: dar um tempo resolve na maioria dos casos. Se não resolver, o `swarm connect` do passo 7 elimina a dependência da DHT.
+**Você precisa de pelo menos duas máquinas rodando a ferramenta.** Um peer
+sozinho fica anunciando indefinidamente sem nada para medir — não é erro, é falta
+de par.
 
 ---
 
-## Apêndice — vários nós na mesma máquina (só para testes locais)
+## Pré-requisitos
 
-Cada nó precisa de um repositório e de portas próprias. Setup **uma vez** por nó:
+- **Docker.** No Windows e no Mac, instale o [Docker
+  Desktop](https://www.docker.com/products/docker-desktop/) e deixe-o aberto. No
+  Linux, o Docker Engine com o plugin do Compose.
+- **Git**, para clonar o repositório.
 
-```bash
-export IPFS_PATH="$HOME/.ipfs2"
-ipfs init
-ipfs config Addresses.API /ip4/127.0.0.1/tcp/5002
-ipfs config Addresses.Gateway /ip4/127.0.0.1/tcp/8081
-ipfs config --json Addresses.Swarm '["/ip4/0.0.0.0/tcp/4002","/ip4/0.0.0.0/udp/4002/quic-v1"]'
-ipfs config --json Pubsub.Enabled true
-```
-
-Depois, a cada uso, um terminal por daemon:
+Confira se está tudo certo:
 
 ```bash
-export IPFS_PATH="$HOME/.ipfs2" && ipfs daemon
+docker compose version
 ```
 
-E um terminal por peer, apontando para a API correspondente:
+---
+
+## Configuração
+
+### 1. Clone o repositório
 
 ```bash
-source venv/bin/activate
-KUBO_API=http://127.0.0.1:5002 python3 peer.py
+git clone -b docker https://github.com/PolianaCSousa/TCC.git
+cd TCC
 ```
 
-Na mesma máquina o `swarm connect` não é necessário — os nós se descobrem por mDNS. Atenção: todos terão o mesmo ASN, então o pareamento cai no fallback de "mesmo ASN"; e com 3 nós, dois pareiam e um fica sobrando. Os `peer.py` rodando do mesmo diretório também escrevem no mesmo `results.csv`.
+### 2. Crie o seu `.env`
+
+```bash
+cp .env.example .env
+```
+
+Abra o `.env` e preencha. Os valores são seus e ficam só na sua máquina — o
+arquivo não vai para o git.
+
+| Variável | O que colocar |
+|---|---|
+| `INFLUXDB_PASSWORD` | senha de acesso ao banco, **mínimo 8 caracteres** |
+| `INFLUXDB_TOKEN` | uma chave aleatória; gere com `openssl rand -hex 32` |
+| `GRAFANA_PASSWORD` | a senha com que você vai entrar no Grafana |
+| `TURN_API_KEY` | opcional — veja abaixo |
+
+As demais já vêm com valores prontos e você não precisa mexer.
+
+**Sobre o `TURN_API_KEY`:** é a chave de um servidor de relay, usada quando os
+dois peers estão atrás de NAT restritivo e não conseguem se conectar direto. Sem
+ela a ferramenta funciona normalmente, usando apenas o STUN público do Google —
+só algumas combinações de rede vão falhar em conectar. Para obter uma, crie uma
+conta gratuita em [metered.ca](https://www.metered.ca/).
+
+**No Linux**, ajuste também o `APP_UID` e o `APP_GID` para os seus, senão os
+arquivos gerados saem pertencendo ao root:
+
+```bash
+id -u    # vai em APP_UID
+id -g    # vai em APP_GID
+```
+
+No Mac e no Windows pode ignorar — o Docker Desktop resolve a permissão sozinho.
+
+---
+
+## Subindo
+
+```bash
+docker compose up -d --build
+```
+
+A primeira vez demora: o Docker baixa as imagens e constrói a do peer. O `-d`
+deixa tudo rodando em segundo plano.
+
+Acompanhe:
+
+```bash
+docker compose ps          # todos devem estar "running", o influx "healthy"
+docker compose logs -f peer
+```
+
+Nos primeiros minutos é normal ver o peer só anunciando. Ele depende de encontrar
+outro peer na rede pública do IPFS, e essa descoberta leva algum tempo.
+
+---
+
+## Vendo os resultados
+
+**Grafana** — <http://localhost:3000>
+
+Usuário `admin`, senha a que você pôs em `GRAFANA_PASSWORD`. A conexão com o
+banco já vem configurada.
+
+**InfluxDB** — <http://localhost:8086>
+
+Usuário e senha de `INFLUXDB_USERNAME` e `INFLUXDB_PASSWORD`. Útil para
+inspecionar os dados crus.
+
+**CSV** — `data/peer1/results.csv`
+
+Uma linha por rodada, com todas as métricas. Os logs ficam em `data/peer1/logs/`.
+Este arquivo é a fonte principal: se a escrita no banco falhar, o teste continua e
+o CSV é gravado do mesmo jeito.
+
+---
+
+## Onde os dados ficam
+
+| O quê | Onde | Sobrevive a `docker compose down`? |
+|---|---|---|
+| `results.csv` e logs | `data/peer1/` — pasta do projeto | sim, é uma pasta sua |
+| Banco do Influx | volume `influx-data` | sim |
+| Dashboards do Grafana | volume `grafana-data` | sim |
+
+⚠️ **`docker compose down -v` apaga os volumes.** A diferença para o `down`
+comum é uma letra, e o banco vai junto. A pasta `data/` não é afetada.
+
+---
+
+## Comandos do dia a dia
+
+```bash
+docker compose ps                  # o que está no ar
+docker compose logs -f peer        # acompanhar o benchmark
+docker compose restart peer        # reiniciar só o peer
+docker compose down                # desligar tudo, preservando os dados
+docker compose up -d --build       # reconstruir após mudar o código
+```
+
+---
+
+## Desenvolvimento
+
+A imagem do peer é construída a partir do **branch `docker` no GitHub**, não do
+seu disco:
+
+```yaml
+build:
+  context: https://github.com/PolianaCSousa/TCC.git#docker
+```
+
+Ou seja: alterou um `.py`, precisa commitar e dar push antes que o
+`docker compose build` enxergue a mudança. Para iterar rápido durante o
+desenvolvimento, troque aquela linha por `context: .`, que constrói do disco.
+
+Já os arquivos montados por bind — `docker/ipfs/` e `grafana/` — não passam pelo
+build. Vêm direto do seu clone, e um `docker compose restart` já os aplica.
+
+### Ajustando o Grafana
+
+Montou um painel bom na interface? Exporte como JSON e salve em
+`grafana/dashboards/`. Quem clonar o repositório vai abrir o Grafana com o painel
+já pronto, sem precisar montar nada.
+
+---
+
+## Pendências conhecidas
+
+- **Não existe dashboard ainda.** A pasta `grafana/dashboards/` está vazia, então
+  hoje o Grafana abre sem nenhum painel. Os dados chegam ao banco, mas para vê-los
+  é preciso ir em *Explore* e escrever a consulta na mão.
+- **O healthcheck do Influx não foi verificado.** Ele usa `influx ping`, e não
+  está confirmado se esse CLI vem dentro da imagem 2.x. Se não vier, o
+  healthcheck nunca passa e o peer fica travado esperando. Para checar:
+  `docker run --rm --entrypoint sh influxdb:2.9.1 -c 'command -v influx curl wget'`
+- **As medições atravessam a rede do Docker.** O peer usa a rede padrão do
+  Compose para funcionar igual nos três sistemas operacionais. O efeito sobre
+  latência e vazão é desprezível, mas a camada extra de NAT pode influenciar o
+  `candidate_type` — o que deve constar na metodologia.
+- **Um peer por máquina.** A pasta `data/peer1` está fixa no compose; duas
+  instâncias na mesma máquina escreveriam por cima uma da outra.
+- **Sem serviço de backup.** O `results.csv` existe em um único lugar, sem cópia.
+  Copie a pasta `data/` para algum lugar seguro.

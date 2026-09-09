@@ -11,8 +11,5 @@ results.csv
 # Logs por peer (gerados localmente)
 logs/
 
-# Variáveis de ambiente / segredos
-.env
-
 # IDE
 .idea/
