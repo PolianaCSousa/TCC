@@ -1,4 +1,4 @@
-# rodar em desenvolvimento
+# docker compose -f tcc-polics.yml up
 
 name: tcc-p2p
 # cada container tem sua propria rede isolada, mas eu consigo criar uma rede para todos usando network (raramente é necessário - verificar com Claude)
@@ -66,13 +66,14 @@ services:
       - "3000:3000"
 
   peer:
-    build:  
-      context: https://github.com/PolianaCSousa/TCC.git#docker
-      dockerfile: Dockerfile
-      args:
-        APP_UID: ${APP_UID:-1000}
-        APP_GID: ${APP_GID:-1000}
-    image: tcc-peer:latest
+    image: polics/tcc-polics
+    #build:  
+    #  context: https://github.com/PolianaCSousa/TCC.git#docker
+    #  dockerfile: Dockerfile
+    #  args:
+    #    APP_UID: ${APP_UID:-1000}
+    #    APP_GID: ${APP_GID:-1000}
+    #image: tcc-peer:latest
     network_mode: host
     restart: unless-stopped
     init: true                    # PID 1 de verdade: repassa SIGTERM ao Python
