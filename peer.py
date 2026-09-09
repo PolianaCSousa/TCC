@@ -15,14 +15,15 @@ from utils import try_parse_json, event_timeout, update_peers_list
 from storage import save_to_file
 from state import state
 from constants import (
-    CONTROL, LATENCY, THROUGHPUT, PACKAGE_LOSS,
+    CONTROL, LATENCY, THROUGHPUT, PACKAGE_LOSS, HEARTBEAT,
     END_LATENCY, END_THROUGHPUT, END_TEST, START_LOADED_PACKAGES, END_LOADED_PACKAGES, LOADED_LATENCY, LATENCY_PROBE_INTERVAL, LATENCY_TEST_SIZE,
     UPLOAD_RECEIVED, UPLOAD_ERROR, LAT_ACK_ERROR, PACKAGE_LOSS_TIMEOUT,
     LAT, LATENCY_TIMEOUT, LOADED_LATENCY_TIMEOUT,
     MIN_THROUGHPUT_BytePerSec, BYTES_THROUGHPUT_10MB, START_THROUGHPUT,
     BYTES_THROUGHPUT_100KB, BYTES_THROUGHPUT_100MB, BYTES_THROUGHPUT_1MB,
     END_ITERATION, END_LAT_PACKAGES, END_PACKAGE_LOSS, ACK_PACKAGE_LOSS,
-    THROUGHPUT_LABELS, BUFFER_AMOUNT_LIMIT, IPFS_TOPIC, CLIENT, SERVER, TEST_INTERVAL_SECONDS
+    THROUGHPUT_LABELS, BUFFER_AMOUNT_LIMIT, IPFS_TOPIC, CLIENT, SERVER, TEST_INTERVAL_SECONDS,
+    HEARTBEAT_INTERVAL_SECONDS, HEARTBEAT_PACKAGE_SIZE
 )
 from experiments.latency import(
     server_send_lat_ack,
@@ -47,6 +48,7 @@ peer = None
 
 async def new_peer_connection():
     global peer
+    await stop_heartbeat()
     if peer is not None:
         await peer.close()
     peer = RTCPeerConnection(configuration=RTCConfiguration(iceServers=ice_servers))
@@ -77,6 +79,34 @@ async def on_state_change():
         logger.error("ICE falhou — nenhum par de candidates funcionou.")
 
 
+# region Heartbeat
+async def _heartbeat_loop(channel):
+    package = bytes(HEARTBEAT_PACKAGE_SIZE)
+    while channel.readyState == "open":
+        channel.send(package)
+        logger.info("heartbeat enviado (%s bytes)", HEARTBEAT_PACKAGE_SIZE)
+        # depois do sleep a conexão pode ter sido fechada, por isso o readyState é
+        # checado de novo no topo do loop antes do próximo send
+        await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
+
+
+def start_heartbeat(channel):
+    state.heartbeat_task = asyncio.create_task(_heartbeat_loop(channel))
+
+
+async def stop_heartbeat():
+    task = state.heartbeat_task
+    if task is None:
+        return
+    state.heartbeat_task = None
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+# endregion
+
+
 # client runs this method to make his offer to peer server
 async def client_make_offer(target_name):
     state.role = CLIENT
@@ -87,6 +117,7 @@ async def client_make_offer(target_name):
     _register_client_latency_channel_handlers()
     _register_client_throughput_channel_handlers()
     _register_client_package_loss_channel_handlers()
+    _register_client_heartbeat_channel_handlers()
 
 signaling.on("role_defined", client_make_offer)
 
@@ -107,6 +138,7 @@ def _create_client_data_channels():
     state.client["throughput_channel"] = peer.createDataChannel(THROUGHPUT, maxPacketLifeTime=None, maxRetransmits=0,ordered=False)
     state.client["latency_channel"] = peer.createDataChannel(LATENCY)
     state.client["package_loss_channel"] = peer.createDataChannel(PACKAGE_LOSS, maxPacketLifeTime=None, maxRetransmits=0, ordered=False)
+    state.client["heartbeat_channel"] = peer.createDataChannel(HEARTBEAT, maxPacketLifeTime=None, maxRetransmits=0, ordered=False)
 
 
 async def _create_and_send_sdp_offer(target_name):
@@ -210,6 +242,15 @@ def _register_client_package_loss_channel_handlers():
     def on_package_loss_message(message):
         state.client["received_packages"] = state.client["received_packages"] + 1
         
+
+def _register_client_heartbeat_channel_handlers():
+    @state.client["heartbeat_channel"].on("open")
+    def on_heartbeat_open():
+        start_heartbeat(state.client["heartbeat_channel"])
+
+    @state.client["heartbeat_channel"].on("message")
+    def on_heartbeat_message(message):
+        pass
 
 async def calculate_client_throughput(test_size):
     state.reset_for_test()
@@ -326,6 +367,10 @@ async def server_receives_offer(data):
         elif received_channel.label == PACKAGE_LOSS:
             state.server["channels"][PACKAGE_LOSS] = received_channel
             _register_server_package_loss_channel_handler()
+        elif received_channel.label == HEARTBEAT:
+            state.server["channels"][HEARTBEAT] = received_channel
+            _register_server_heartbeat_channel_handler()
+            start_heartbeat(received_channel)
 # endregion
 signaling.on("offer", server_receives_offer)
 
@@ -394,6 +439,12 @@ def _register_server_throughput_channel_handler():
     @state.server["channels"][THROUGHPUT].on("bufferedamountlow")
     def on_throughput_buffer_amount_low():
         state.events["throughput_buffer_drained"].set()
+
+
+def _register_server_heartbeat_channel_handler():
+    @state.server["channels"][HEARTBEAT].on("message")
+    def on_heartbeat_message(message):
+        pass 
 
 
 def _register_server_package_loss_channel_handler():
@@ -529,6 +580,7 @@ async def main():
     except (KeyboardInterrupt, asyncio.CancelledError):
         print("\nSaindo...")
     finally:
+        await stop_heartbeat()
         await signaling.close()
         await kubo.close()
 

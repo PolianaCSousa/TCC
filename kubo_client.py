@@ -1,6 +1,9 @@
 import aiohttp
 import base64
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class KuboClient:
@@ -27,7 +30,12 @@ class KuboClient:
             params=params,
             data=form
         ) as response:
-            print(response)
+            if response.status >= 400:
+                body = await response.text()
+                raise RuntimeError(
+                    f'pubsub/pub no tópico {topic} falhou ({response.status}): {body}'
+                )
+            logger.debug("pubsub/pub %s -> %s", topic, response.status)
 
 
     async def pubsub_sub(self, topic):

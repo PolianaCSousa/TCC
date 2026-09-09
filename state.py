@@ -7,12 +7,14 @@ class PeerState:
         self.sid: str | None = None
         self.role: str | None = None
         self.latency_type: str = "unloaded"
+        self.heartbeat_task: asyncio.Task | None = None
 
         self.client: Client = {
             "control_channel": None,
             "throughput_channel": None,
             "latency_channel": None,
             "package_loss_channel": None,
+            "heartbeat_channel": None,
             "t0_latency": [],
             "t1_latency": [],
             "t0_loaded_latency": [],
@@ -124,7 +126,9 @@ class PeerState:
         self.client["throughput_channel"] = None
         self.client["latency_channel"] = None
         self.client["package_loss_channel"] = None
+        self.client["heartbeat_channel"] = None
         self.server["channels"] = {}
+        self.heartbeat_task = None
 
 
 state = PeerState()
