@@ -7,6 +7,7 @@ import colorlog
 import json
 from kubo_client import KuboClient
 from ipfs_signaling import IpfsSignaling
+from swarm_connector import SwarmConnector
 from config import (
     get_connection_configuration
 )
@@ -43,6 +44,7 @@ logger = logging.getLogger(__name__)
 # creat a Kubo Client instance and a peer for WebRTC connection
 kubo = KuboClient(os.environ.get("KUBO_API", "http://127.0.0.1:5001"))
 signaling = IpfsSignaling(kubo,IPFS_TOPIC)
+swarm = SwarmConnector(kubo, IPFS_TOPIC)
 ice_servers = get_connection_configuration()
 peer = None
 
@@ -566,6 +568,9 @@ async def main():
     await new_peer_connection()
     # Inicializar o signaling (se anunciar no IPFS)
     await signaling.start()
+    # o gossipsub só fofoca entre peers já conectados: o swarm connector usa a DHT
+    # pra achar os outros participantes e discar neles, senão o announce vai pro vazio
+    await swarm.start()
 
     # loop daemon: roda testes em ciclo, com intervalo entre eles
     try:
@@ -581,6 +586,7 @@ async def main():
         print("\nSaindo...")
     finally:
         await stop_heartbeat()
+        await swarm.close()
         await signaling.close()
         await kubo.close()
 

@@ -81,4 +81,17 @@ LATENCY_PROBE_INTERVAL = 0.002 # 20 ms
 IPFS_TOPIC = "tcc-polics"
 
 # intervalo (segundos) entre o fim de um teste e o próximo pareamento (daemon)
-TEST_INTERVAL_SECONDS = 30 
+TEST_INTERVAL_SECONDS = 30
+
+# --- swarm connect: rendezvous via DHT ---
+# O gossipsub só troca mensagem entre peers já conectados no swarm, e ele não
+# descobre ninguém sozinho. Sem isso, dois peers publicam announce no vazio até
+# que a DHT por acaso os aproxime. O daemon força esse encontro.
+SWARM_INTERVAL_ALONE = 15        # nenhum peer no tópico: procura agressiva
+SWARM_INTERVAL_TOGETHER = 60     # já tem com quem parear: só capta quem chegar depois
+SWARM_PROVIDE_INTERVAL = 600     # reanuncia na DHT a cada 10 min
+SWARM_FINDPROVS_TIMEOUT = 45     # a busca na DHT varre sem achar quando não há ninguém
+SWARM_DIAL_TIMEOUT = 20          # peer inalcançável falha em ~13s; 20 dá folga
+SWARM_NUM_PROVIDERS = 50         # generoso: registros de containers mortos ocupam vaga
+SWARM_BASE_BACKOFF = 30          # espera após a 1ª falha, dobrando a cada nova
+SWARM_MAX_BACKOFF = 600          # teto: o voluntário pode religar a máquina a qualquer hora

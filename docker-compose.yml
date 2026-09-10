@@ -67,7 +67,7 @@ services:
 
   peer:
     build:  
-      context: https://github.com/PolianaCSousa/TCC.git#docker
+      context: https://github.com/PolianaCSousa/TCC.git#swarm-connect
       dockerfile: Dockerfile
       args:
         APP_UID: ${APP_UID:-1000}

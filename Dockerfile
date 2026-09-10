@@ -28,7 +28,7 @@ RUN tar -xvzf kubo_v0.43.0_linux-amd64.tar.gz && \
     cd kubo && sh install.sh && cd ..  && \
     ipfs --version 
 
-RUN git clone -b docker https://github.com/PolianaCSousa/TCC.git /TCC
+RUN git clone -b swarm-connect https://github.com/PolianaCSousa/TCC.git /TCC
 RUN mv /TCC/* /app
 # RUN cd /app && python3 -m venv venv && source venv/bin/activate
 # RUN pip install --no-cache-dir -r requirements.txt
