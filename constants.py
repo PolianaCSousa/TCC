@@ -13,6 +13,7 @@ CONTROL = "control"
 LATENCY = "latency"
 THROUGHPUT = "throughput"
 PACKAGE_LOSS = "package_loss"
+HEARTBEAT = "heartbeat"
 
 # --- flags for acks and end of tests ---
 END_LATENCY = "Fim latência"
@@ -61,6 +62,11 @@ MIN_THROUGHPUT_BytePerSec = (__MIN_THROUGHPUT_MbitPerSec / 8) * 10 ** 6  ## 8 Mb
 
 # --- package size ---
 BYTES_PER_PACKAGE = 1400
+
+# --- heartbeat ---
+HEARTBEAT_INTERVAL_SECONDS = 10
+# payload cabe na MTU típica depois do overhead de SCTP/DTLS/UDP, então sai como um único datagrama
+HEARTBEAT_PACKAGE_SIZE = 1200
 
 # --- timeouts ---
 _ACCEPTABLE_LATENCY_MS = 80
