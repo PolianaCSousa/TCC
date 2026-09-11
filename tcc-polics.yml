@@ -66,7 +66,7 @@ services:
       - "3000:3000"
 
   peer:
-    image: polics/tcc-polics
+    image: polics/tcc-polics:swarm
     #build:  
     #  context: https://github.com/PolianaCSousa/TCC.git#docker
     #  dockerfile: Dockerfile
