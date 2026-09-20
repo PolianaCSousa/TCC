@@ -48,6 +48,10 @@ THROUGHPUT_LABELS = {
     BYTES_THROUGHPUT_100MB: "100MB",
 }
 
+# --- status da rodada (vira coluna no results.csv e tag no influx) ---
+COMPLETE = "complete"
+ABORTED = "aborted"
+
 # limite mínimo do buffer para controle de fluxo - eu so envio mais quando ele tiver abaixo desse valor
 BUFFER_AMOUNT_LIMIT = {
     BYTES_THROUGHPUT_100KB: 20 * 10 ** 3,
@@ -76,6 +80,21 @@ SHORT_TIMEOUT = 12 * (_ACCEPTABLE_LATENCY_MS / 1000)  # criei esse timeout pra e
 
 # LATENCY_PROBE_INTERVAL = 0.001 # 10 ms
 LATENCY_PROBE_INTERVAL = 0.002 # 20 ms
+
+# --- controle de fluxo do teste de vazão ---
+# O envio precisa ESPERAR o buffer drenar em vez de continuar enfileirando. Encher a
+# fila do gargalo infla o RTT muito acima dos 0,5s que o consent freshness do ICE
+# (RFC 7675) tolera, e o aioice derruba a conexão depois de 6 falhas seguidas (~30s).
+# Foi isso que matou a conexão logo depois que o teste de 100MB começou.
+BUFFER_DRAIN_TIMEOUT = 5         # quanto espero, por vez, o bufferedamountlow chegar
+MAX_BUFFER_STALLS = 6            # 6 esperas seguidas sem drenar (~30s) = link travado, aborto o envio
+
+# --- recuperação de rodada ---
+RETRY_INTERVAL_SECONDS = 10      # espera curta antes de reparear quando a rodada foi abortada
+# rede de segurança pra rodada que trava SEM a conexão cair. Precisa ficar acima do
+# pior caso legítimo: os timeouts do 100MB sozinhos já somam ~1600s (800s de download
+# + 800s de test_complete), mais latência e perda de pacotes.
+ROUND_WATCHDOG_SECONDS = 45 * 60
 
 # IPFS topic name
 IPFS_TOPIC = "tcc-polics"

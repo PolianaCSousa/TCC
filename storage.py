@@ -1,13 +1,17 @@
 import os
 import logging
+import time
 import pandas as pd
 from influx_service import InfluxService
 from custom_types import Results
 
 logger = logging.getLogger(__name__)
 
+RESULTS_FILE = "results.csv"
+
 # o que identifica a medição (vira tag/índice no influx); todo o resto do results é métrica (field)
-TAG_KEYS = ("role", "ip", "candidate_type")
+# status é categórico e de baixa cardinalidade (complete/aborted), então cabe como tag
+TAG_KEYS = ("role", "ip", "candidate_type", "status")
 
 _influx: InfluxService | None = None
 
@@ -24,10 +28,28 @@ def _column_with_unit(col: str) -> str:
     return col
 
 
+def _rotate_if_header_changed(columns: list[str]):
+    """Se o CSV existente tem outro cabeçalho, arquiva antes de escrever.
+
+    Sem isso, um append com coluna nova (status) entra desalinhado e o arquivo inteiro
+    fica ilegível pro pandas na hora da análise.
+    """
+    if not os.path.exists(RESULTS_FILE):
+        return
+    with open(RESULTS_FILE, newline="") as arquivo:
+        cabecalho = arquivo.readline().strip()
+    if cabecalho == ",".join(columns):
+        return
+    antigo = f"results_{time.strftime('%Y%m%d-%H%M%S')}.csv"
+    os.rename(RESULTS_FILE, antigo)
+    logger.warning("Colunas do results.csv mudaram. Arquivo anterior salvo como %s.", antigo)
+
+
 def save_to_file(results: Results):
     results_data_frame = pd.DataFrame([results]).rename(columns=_column_with_unit)
-    file_exists = os.path.exists('results.csv')
-    results_data_frame.to_csv("results.csv", mode='a', header=not file_exists, index=False)
+    _rotate_if_header_changed(list(results_data_frame.columns))
+    file_exists = os.path.exists(RESULTS_FILE)
+    results_data_frame.to_csv(RESULTS_FILE, mode='a', header=not file_exists, index=False)
     save_to_db(results)
 
 

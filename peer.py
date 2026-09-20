@@ -12,7 +12,7 @@ from config import (
     get_connection_configuration
 )
 from custom_types import Client, Server, Peer, Results
-from utils import try_parse_json, event_timeout, update_peers_list
+from utils import try_parse_json, event_timeout, events_timeout, update_peers_list, safe_send
 from storage import save_to_file
 from state import state
 from constants import (
@@ -24,7 +24,8 @@ from constants import (
     BYTES_THROUGHPUT_100KB, BYTES_THROUGHPUT_100MB, BYTES_THROUGHPUT_1MB,
     END_ITERATION, END_LAT_PACKAGES, END_PACKAGE_LOSS, ACK_PACKAGE_LOSS,
     THROUGHPUT_LABELS, BUFFER_AMOUNT_LIMIT, IPFS_TOPIC, CLIENT, SERVER, TEST_INTERVAL_SECONDS,
-    HEARTBEAT_INTERVAL_SECONDS, HEARTBEAT_PACKAGE_SIZE
+    HEARTBEAT_INTERVAL_SECONDS, HEARTBEAT_PACKAGE_SIZE,
+    ABORTED, RETRY_INTERVAL_SECONDS, ROUND_WATCHDOG_SECONDS
 )
 from experiments.latency import(
     server_send_lat_ack,
@@ -51,10 +52,66 @@ peer = None
 async def new_peer_connection():
     global peer
     await stop_heartbeat()
-    if peer is not None:
-        await peer.close()
+    await cancel_round_tasks()
+    old_peer, peer = peer, None  # zerar antes de fechar: o statechange do peer antigo passa a ser ignorado
+    if old_peer is not None:
+        await old_peer.close()
     peer = RTCPeerConnection(configuration=RTCConfiguration(iceServers=ice_servers))
-    peer.on("connectionstatechange", on_state_change)
+    peer.on("connectionstatechange", _make_state_change_handler(peer))
+    # round_active só liga quando a conexão sobe de verdade (ver o handler de estado):
+    # um peer esperando par sozinho não tem rodada pra abortar nem resultado pra salvar
+
+
+# region Round lifecycle
+# As etapas da rodada nascem de handlers do pyee, que cria uma task pra cada uma e não
+# devolve a referência. Sem rastrear essas tasks, quando a conexão cai elas continuam
+# vivas — presas em event_timeout de até 800s — e acordam escrevendo no state da rodada
+# SEGUINTE. Por isso toda etapa longa passa por aqui.
+_round_tasks: set[asyncio.Task] = set()
+
+
+def spawn_round_task(coro):
+    task = asyncio.create_task(coro)
+    _round_tasks.add(task)
+    task.add_done_callback(_on_round_task_done)
+    return task
+
+
+def _on_round_task_done(task):
+    _round_tasks.discard(task)
+    if task.cancelled():
+        return
+    erro = task.exception()
+    if erro is not None:
+        # o pyee fazia isso por mim quando o handler era async; agora a task é minha
+        logger.error("Etapa da rodada falhou", exc_info=erro)
+
+
+async def cancel_round_tasks():
+    tasks = [task for task in _round_tasks if not task.done()]
+    _round_tasks.clear()
+    if not tasks:
+        return
+    logger.info("cancelando %s task(s) da rodada anterior", len(tasks))
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+
+def finish_round():
+    state.round_active = False
+    state.events["round_done"].set()
+
+
+#A conexão morreu antes do fim. Acorda o loop principal pra reparear.
+def abort_round(reason):
+    if not state.round_active:
+        return  # o par fechou a conexão antiga entre rodadas: é o fluxo normal
+    state.round_active = False
+    state.results["status"] = ABORTED
+    logger.error("Rodada abortada: %s", reason)
+    state.events["connection_lost"].set()
+# endregion
 
 
 def get_selected_candidate_pair():
@@ -69,23 +126,38 @@ def get_selected_candidate_pair():
         return None
 
 
-async def on_state_change():
-    logger.info("Connection state: %s", peer.connectionState)
-    if peer.connectionState == "connected":
-        info = get_selected_candidate_pair()
-        if info:
-            state.results["ip"] = info["local_ip"]
-            state.results["candidate_type"] = info["local_type"]
-            logger.info("Candidate local: %s (%s)", info["local_ip"], info["local_type"])
-    elif peer.connectionState == "failed":
-        logger.error("ICE falhou — nenhum par de candidates funcionou.")
+def _make_state_change_handler(pc):
+    # o handler fica preso ao pc que o registrou: sem isso, o peer antigo continuava
+    # logando (e reagindo a) o estado do peer novo depois da troca de rodada
+    async def on_state_change():
+        logger.info("Connection state: %s", pc.connectionState)
+        if pc is not peer:
+            return
+        if pc.connectionState == "connected":
+            state.round_active = True  # a partir daqui existe rodada pra abortar
+            info = get_selected_candidate_pair()
+            if info:
+                state.results["ip"] = info["local_ip"]
+                state.results["candidate_type"] = info["local_type"]
+                logger.info("Candidate local: %s (%s)", info["local_ip"], info["local_type"])
+        elif pc.connectionState == "failed":
+            logger.error("ICE falhou — nenhum par de candidates funcionou.")
+            abort_round("ICE falhou")
+        elif pc.connectionState == "closed":
+            # o aiortc só chega em "closed" sozinho quando o DTLS morre, e o DTLS morre
+            # quando o aioice expira o consent freshness (RFC 7675): 6 binding requests
+            # sem resposta, ~30s. Ou seja, o par ficou inalcançável.
+            abort_round("conexão fechada (consent freshness do ICE expirou ou o par saiu)")
+
+    return on_state_change
 
 
 # region Heartbeat
 async def _heartbeat_loop(channel):
     package = bytes(HEARTBEAT_PACKAGE_SIZE)
     while channel.readyState == "open":
-        channel.send(package)
+        if not safe_send(channel, package):
+            break
         logger.info("heartbeat enviado (%s bytes)", HEARTBEAT_PACKAGE_SIZE)
         # depois do sleep a conexão pode ter sido fechada, por isso o readyState é
         # checado de novo no topo do loop antes do próximo send
@@ -154,7 +226,7 @@ async def _create_and_send_sdp_offer(target_name):
 def _register_client_control_channel_handlers():
     @state.client["control_channel"].on("open")
     async def on_control_open():
-        state.client["control_channel"].send("O teste de LATÊNCIA irá começar...")
+        safe_send(state.client["control_channel"], "O teste de LATÊNCIA irá começar...")
 
     @state.client["control_channel"].on("message")
     async def on_control_message(message):
@@ -181,16 +253,14 @@ def _register_client_control_channel_handlers():
         elif msg is not None and msg["msg"] == 'package_loss':
             state.results["package_loss"] = msg["value"]
             state.events["package_loss_received"].set()
-            state.client["control_channel"].send(ACK_PACKAGE_LOSS)
+            safe_send(state.client["control_channel"], ACK_PACKAGE_LOSS)
             logger.info("Perda de pacotes do cliente: %s", state.results["package_loss"])
 
 
 def _register_client_latency_channel_handlers():
     @state.client["latency_channel"].on("open")
-    async def on_latency_open():
-        await client_latency(LATENCY_TEST_SIZE, LATENCY, LATENCY_PROBE_INTERVAL)
-        state.client["control_channel"].send(END_LAT_PACKAGES)
-        await calculate_client_latency(LATENCY_TEST_SIZE) #assim que o cliente termina de enviar ele ja pode calcular sem problema, o que nao pode acontecer é ele começar o teste de vazão antes do servidor terminar de calcular a latência dele
+    def on_latency_open():
+        spawn_round_task(_client_latency_phase())
 
 
     @state.client["latency_channel"].on("message")
@@ -204,22 +274,9 @@ def _register_client_latency_channel_handlers():
 
 def _register_client_throughput_channel_handlers():
     @state.client["throughput_channel"].on("open")
-    async def on_throughput_open():
-        event_occured = await event_timeout(state.events["latency_finished"],
-                                            LATENCY_TIMEOUT)  # nesse caso, mesmo se o timeout estourar, eu posso prosseguir com o teste de vazão
-        if event_occured:
-            #logger.info("latência finalizada. Vazão vai começar")
-            state.client["control_channel"].send(START_THROUGHPUT)
-        else:
-            #O teste de VAZÃO irá começar, apesar do cliente não ter recebido o pacote de fim de latência do par servidor
-            state.client["control_channel"].send(START_THROUGHPUT)
-            
-        await calculate_client_throughput(BYTES_THROUGHPUT_100KB)
-        await calculate_client_throughput(BYTES_THROUGHPUT_1MB)
-        await calculate_client_throughput(BYTES_THROUGHPUT_10MB)
-        await calculate_client_throughput(BYTES_THROUGHPUT_100MB)
-        state.events["end_throughput_experiments"].set()
-        
+    def on_throughput_open():
+        spawn_round_task(_client_throughput_phase())
+
 
     @state.client["throughput_channel"].on("message")
     def on_throughput_message(message):
@@ -236,10 +293,10 @@ def _register_client_throughput_channel_handlers():
 
 def _register_client_package_loss_channel_handlers():
     @state.client["package_loss_channel"].on("open")
-    async def on_package_loss_open():
-        await state.events["end_throughput_experiments"].wait() #espera o fim dos testes de latencia e vazão independentemente do tempo que eles irão gastar
-        await client_package_loss()
-    
+    def on_package_loss_open():
+        spawn_round_task(_client_package_loss_phase())
+
+
     @state.client["package_loss_channel"].on("message")
     def on_package_loss_message(message):
         state.client["received_packages"] = state.client["received_packages"] + 1
@@ -254,16 +311,51 @@ def _register_client_heartbeat_channel_handlers():
     def on_heartbeat_message(message):
         pass
 
+# region Client phases
+# cada fase roda numa task rastreada (spawn_round_task) pra poder ser cancelada em bloco
+# quando a conexão cai — senão elas sobrevivem à rodada e contaminam a próxima
+async def _client_latency_phase():
+    await client_latency(LATENCY_TEST_SIZE, LATENCY, LATENCY_PROBE_INTERVAL)
+    safe_send(state.client["control_channel"], END_LAT_PACKAGES)
+    # assim que o cliente termina de enviar ele ja pode calcular sem problema, o que nao pode
+    # acontecer é ele começar o teste de vazão antes do servidor terminar de calcular a latência dele
+    await calculate_client_latency(LATENCY_TEST_SIZE)
+
+
+async def _client_throughput_phase():
+    # mesmo se o timeout estourar eu posso prosseguir com o teste de vazão
+    if not await event_timeout(state.events["latency_finished"], LATENCY_TIMEOUT):
+        logger.warning("não recebi END_LATENCY do par em %ss. Começando a vazão assim mesmo.", LATENCY_TIMEOUT)
+    safe_send(state.client["control_channel"], START_THROUGHPUT)
+
+    await calculate_client_throughput(BYTES_THROUGHPUT_100KB)
+    await calculate_client_throughput(BYTES_THROUGHPUT_1MB)
+    await calculate_client_throughput(BYTES_THROUGHPUT_10MB)
+    await calculate_client_throughput(BYTES_THROUGHPUT_100MB)
+    state.events["end_throughput_experiments"].set()
+
+
+async def _client_package_loss_phase():
+    # espera o fim dos testes de latencia e vazão independentemente do tempo que eles irão gastar
+    await state.events["end_throughput_experiments"].wait()
+    await client_package_loss()
+# endregion
+
+
 async def calculate_client_throughput(test_size):
     state.reset_for_test()
     state.client["throughput_channel"].bufferedAmountLowThreshold = BUFFER_AMOUNT_LIMIT[test_size]
     await calculate_client_upload(test_size)
     await calculate_client_download(test_size)
-    await event_timeout(state.events["test_complete"], test_size / MIN_THROUGHPUT_BytePerSec) #wait for the test finish completely
+    #wait for the test finish completely
+    if not await event_timeout(state.events["test_complete"], test_size / MIN_THROUGHPUT_BytePerSec):
+        logger.warning("%s: não recebi END_TEST do par em %ss. Seguindo pro próximo tamanho.",
+                       THROUGHPUT_LABELS[test_size], test_size / MIN_THROUGHPUT_BytePerSec)
 
 
 async def calculate_client_upload(test_size):
-    loaded_latency_task = asyncio.create_task(client_latency(LATENCY_TEST_SIZE, LOADED_LATENCY, LATENCY_PROBE_INTERVAL, test_size))
+    # rastreada também: ela é filha desta fase, e cancelar só a mãe deixaria esta viva
+    loaded_latency_task = spawn_round_task(client_latency(LATENCY_TEST_SIZE, LOADED_LATENCY, LATENCY_PROBE_INTERVAL, test_size))
     await send_throughput_data(state.client["throughput_channel"], state.client["control_channel"], state.client,test_size)
     ## a task abaixo irá aguardar o evento upload_received ou upload_error
     await send_ack_end_upload(state.client["control_channel"], test_size / MIN_THROUGHPUT_BytePerSec, test_size)
@@ -279,7 +371,7 @@ async def client_latency(qtd_tests, type=LATENCY, sleep_loaded_interval=0, test_
     state.latency_type = "loaded" if (type == LOADED_LATENCY) else "unloaded"
     latency_timeout = LOADED_LATENCY_TIMEOUT if type == LOADED_LATENCY else LATENCY_TIMEOUT
     if type == LOADED_LATENCY:
-        state.client["control_channel"].send(START_LOADED_PACKAGES)
+        safe_send(state.client["control_channel"], START_LOADED_PACKAGES)
     for _ in range(qtd_tests):
         state.events["latency_finished"].clear()
         state.events["loaded_latency_finished"].clear()
@@ -293,7 +385,7 @@ async def client_latency(qtd_tests, type=LATENCY, sleep_loaded_interval=0, test_
             await client_send_ack(state.client["latency_channel"])
         else:
             state.client[state.t1_latency_key()].append(None) #se o LAT nao chegar no servidor, eu nem vou receber o LAT_ACK, logo meu t1_latency fica sendo None
-            state.client["control_channel"].send(LAT_ACK_ERROR)
+            safe_send(state.client["control_channel"], LAT_ACK_ERROR)
         #ESPERAR O END_ITERATION
         await event_timeout(state.events["end_iteration"], latency_timeout)
 
@@ -301,7 +393,7 @@ async def client_latency(qtd_tests, type=LATENCY, sleep_loaded_interval=0, test_
             await asyncio.sleep(sleep_loaded_interval)
     
     if type == LOADED_LATENCY:
-        state.client["control_channel"].send(END_LOADED_PACKAGES)
+        safe_send(state.client["control_channel"], END_LOADED_PACKAGES)
         await calculate_client_latency(LATENCY_TEST_SIZE, LOADED_LATENCY, test_size)
         
 
@@ -328,21 +420,23 @@ async def client_package_loss():
     state.events["end_throughput_experiments"].clear()
     package = bytes(1)
     for _ in range(1000):
-        state.client["package_loss_channel"].send(package)
+        if not safe_send(state.client["package_loss_channel"], package):
+            break
     await asyncio.sleep(2)
-    state.client["control_channel"].send(END_PACKAGE_LOSS)
+    safe_send(state.client["control_channel"], END_PACKAGE_LOSS)
     event_ocurred = await event_timeout(state.events["package_loss_received"], PACKAGE_LOSS_TIMEOUT)
     if not event_ocurred:
+        logger.warning("não recebi a minha perda de pacotes do par em %ss.", PACKAGE_LOSS_TIMEOUT)
         state.results["package_loss"] = None
     save_to_file(state.results)
     state.reset_results()
-    state.events["round_done"].set()
+    finish_round()
 
 def client_calculates_server_package_loss():
     received_packages = state.client["received_packages"]
     lost_packages = 1000 - received_packages
     package_loss = (lost_packages/1000) * 100
-    state.client["control_channel"].send(json.dumps({
+    safe_send(state.client["control_channel"], json.dumps({
                 "msg": "package_loss",
                 "value": package_loss,
             }))
@@ -390,10 +484,10 @@ async def _create_and_send_sdp_answer(data):
 def _register_server_control_channel_handler():
     @state.server["channels"][CONTROL].on("message")
     async def on_control_message(message):
-        print(f'[CONTROLE] {message}')
+        logger.debug("[CONTROLE] %s", message)
         msg = try_parse_json(message)
         if message == START_THROUGHPUT: #pode ser que essa mensagem nao chegue, e aí seria um problema, mas o tratamento seria feito no canal webRTC
-            asyncio.create_task(_calculate_server_download());
+            spawn_round_task(_calculate_server_download())
         elif message == END_LAT_PACKAGES:
             calculate_server_latency(LATENCY_TEST_SIZE)
         elif message == START_LOADED_PACKAGES:
@@ -427,8 +521,9 @@ def _register_server_control_channel_handler():
 
 def _register_server_latency_channel_handler():
     @state.server["channels"][LATENCY].on("message")
-    async def on_latency_message(message):
-        await server_latency(message) #o metodo é chamado sempre que uma mensagem chega nessa canal, logo eu nao posso chamar o calculate_server latency aqui
+    def on_latency_message(message):
+        #o metodo é chamado sempre que uma mensagem chega nessa canal, logo eu nao posso chamar o calculate_server latency aqui
+        spawn_round_task(server_latency(message))
 
 
 def _register_server_throughput_channel_handler():
@@ -460,12 +555,13 @@ async def server_calculates_client_package_loss():
     received_packages = state.server["received_packages"]
     lost_packages = 1000 - received_packages
     package_loss = (lost_packages/1000) * 100
-    state.server["channels"][CONTROL].send(json.dumps({
+    safe_send(state.server["channels"][CONTROL], json.dumps({
                 "msg": "package_loss",
                 "value": package_loss,
             }))
     state.events["ack_package_loss_received"].clear()
-    await event_timeout(state.events["ack_package_loss_received"], PACKAGE_LOSS_TIMEOUT)
+    if not await event_timeout(state.events["ack_package_loss_received"], PACKAGE_LOSS_TIMEOUT):
+        logger.warning("o cliente não confirmou o recebimento da perda de pacotes em %ss.", PACKAGE_LOSS_TIMEOUT)
     await server_package_loss()
 
 
@@ -473,15 +569,17 @@ async def server_package_loss():
     state.events["package_loss_received"].clear()
     package = bytes(1)
     for _ in range(1000):
-        state.server["channels"][PACKAGE_LOSS].send(package)
+        if not safe_send(state.server["channels"][PACKAGE_LOSS], package):
+            break
     await asyncio.sleep(2)
-    state.server["channels"][CONTROL].send(END_PACKAGE_LOSS)
+    safe_send(state.server["channels"][CONTROL], END_PACKAGE_LOSS)
     event_ocurred = await event_timeout(state.events["package_loss_received"], PACKAGE_LOSS_TIMEOUT)
     if not event_ocurred:
+        logger.warning("não recebi a minha perda de pacotes do par em %ss.", PACKAGE_LOSS_TIMEOUT)
         state.results["package_loss"] = None
     save_to_file(state.results)
     state.reset_results()
-    state.events["round_done"].set()
+    finish_round()
 
 #acho que nao preciso chamar o calculate_server lataency depois de cada downlaod. EU tenho que chamar quando o ultimo pacote tiver chegando, e eu so sei disso pelo canal de controle
 async def _calculate_server_download():
@@ -511,7 +609,7 @@ async def server_latency(message):
         state.server[state.t1_latency_key()].append(time.time_ns())
         state.events["ack_received"].set()
         logger.info("<<< recebi ACK")
-        state.server["channels"][CONTROL].send(END_ITERATION)
+        safe_send(state.server["channels"][CONTROL], END_ITERATION)
 
 
 def calculate_server_latency(qtd_tests, result_key=LATENCY, test_size=None):
@@ -528,10 +626,22 @@ def calculate_server_latency(qtd_tests, result_key=LATENCY, test_size=None):
 
     calc_latency(all_measures, result_key, test_size)
 
-    state.server["channels"][CONTROL].send(END_LATENCY)
+    safe_send(state.server["channels"][CONTROL], END_LATENCY)
     if result_key != LATENCY:
         state.reset_loaded_latency(state.server)
 # endregion
+
+
+def _save_aborted_round():
+    """Grava o que a rodada conseguiu medir antes de cair, marcado como incompleto.
+
+    Serve de dado de confiabilidade: dá pra contar quantas rodadas caem e em que fase,
+    sem misturar medição truncada com medição válida na análise.
+    """
+    state.results["status"] = ABORTED
+    logger.warning("Salvando rodada incompleta: %s", state.results)
+    save_to_file(state.results)
+    state.reset_results()
 
 
 # Função principal para iniciar o cliente e conectar
@@ -561,6 +671,10 @@ async def main():
     # libera só o meu módulo
     logger.setLevel(logging.INFO)
     logging.getLogger("experiments").setLevel(logging.INFO)
+    logging.getLogger("utils").setLevel(logging.INFO)
+    # o aioice loga "Consent to send expired" em INFO. Sem isso, a conexão morre e o
+    # único rastro é o "Connection state: closed", sem dizer o motivo.
+    logging.getLogger("aioice").setLevel(logging.INFO)
 
 
     # Inicializando o Client do Kubo
@@ -575,17 +689,37 @@ async def main():
     # loop daemon: roda testes em ciclo, com intervalo entre eles
     try:
         while True:
-            await state.events["round_done"].wait()      # espera a rodada terminar
-            state.events["round_done"].clear()
-            logger.info("Rodada concluída. Aguardando %ss até a próxima...", TEST_INTERVAL_SECONDS)
-            await asyncio.sleep(TEST_INTERVAL_SECONDS)
+            # a rodada acaba de três jeitos: terminou, a conexão caiu, ou travou de vez
+            outcome = await events_timeout({
+                "round_done": state.events["round_done"],
+                "connection_lost": state.events["connection_lost"],
+            }, ROUND_WATCHDOG_SECONDS)
+
+            if outcome == "round_done":
+                espera = TEST_INTERVAL_SECONDS
+                logger.info("Rodada concluída. Aguardando %ss até a próxima...", espera)
+            elif outcome == "timeout" and not state.round_active:
+                # nunca conectou: não há medição nenhuma pra salvar, só tento parear de novo
+                logger.warning("Sem par há %ss. Recriando a conexão e repareando.", ROUND_WATCHDOG_SECONDS)
+                espera = 0
+            else:
+                if outcome == "timeout":
+                    logger.error("Watchdog: a rodada passou de %ss sem terminar. Abortando.",
+                                 ROUND_WATCHDOG_SECONDS)
+                    state.round_active = False
+                _save_aborted_round()
+                espera = RETRY_INTERVAL_SECONDS
+                logger.warning("Repareando em %ss.", espera)
+
+            await asyncio.sleep(espera)
             await new_peer_connection()                   # fecha a conexão antiga + cria a nova
             state.reset_for_new_round()                   # limpa acumuladores/latency_type
             signaling.reset_for_new_round()               # volta o signaling pra FREE → repareia
     except (KeyboardInterrupt, asyncio.CancelledError):
-        print("\nSaindo...")
+        logger.info("Saindo...")
     finally:
         await stop_heartbeat()
+        await cancel_round_tasks()
         await swarm.close()
         await signaling.close()
         await kubo.close()

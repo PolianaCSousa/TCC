@@ -1,6 +1,6 @@
 import asyncio
 from custom_types import Client, Server, Peer, Results
-from constants import THROUGHPUT_LABELS
+from constants import THROUGHPUT_LABELS, COMPLETE
 
 class PeerState:
     def __init__(self) -> None:
@@ -8,6 +8,9 @@ class PeerState:
         self.role: str | None = None
         self.latency_type: str = "unloaded"
         self.heartbeat_task: asyncio.Task | None = None
+        # só aborto a rodada por queda de conexão enquanto ela está de fato rodando:
+        # entre uma rodada e outra o par também fecha o peer antigo, e isso é normal
+        self.round_active: bool = False
 
         self.client: Client = {
             "control_channel": None,
@@ -43,6 +46,7 @@ class PeerState:
             "role": None,
             "ip": None,
             "candidate_type": None,
+            "status": COMPLETE,
             "latency": None,
             "jitter": None,
 
@@ -86,6 +90,7 @@ class PeerState:
             "ack_package_loss_received": asyncio.Event(),
             "throughput_buffer_drained": asyncio.Event(),
             "round_done": asyncio.Event(),
+            "connection_lost": asyncio.Event(),
         }
     
     def t0_latency_key(self):
@@ -102,6 +107,7 @@ class PeerState:
         for key in self.results:
             if key not in ("role", "ip", "candidate_type"):
                 self.results[key] = None
+        self.results["status"] = COMPLETE  # a rodada nasce válida; só o abort muda isso
 
     def reset_for_test(self):
         self.events["upload_received"].clear()

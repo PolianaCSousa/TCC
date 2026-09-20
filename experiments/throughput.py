@@ -7,6 +7,8 @@ from constants import (
     BYTES_THROUGHPUT_10MB,
     THROUGHPUT,
     BUFFER_AMOUNT_LIMIT,
+    BUFFER_DRAIN_TIMEOUT,
+    MAX_BUFFER_STALLS,
     UPLOAD_ERROR,
     UPLOAD_RECEIVED,
     END_TEST,
@@ -14,7 +16,7 @@ from constants import (
 import logging
 from state import state
 import json
-from utils import event_timeout, events_timeout
+from utils import event_timeout, events_timeout, safe_send
 from storage import save_to_file
 import asyncio
 import time
@@ -22,22 +24,56 @@ import time
 logger = logging.getLogger(__name__)
 
 async def send_throughput_data(throughput_channel, control_channel, PEER, test_size):
+    label = THROUGHPUT_LABELS[test_size]
     try:
         package = bytes(BYTES_PER_PACKAGE)
         PEER["qtd_total_bytes"] = test_size
         PEER["qtd_packages"] = 0
         qtd_pacotes = test_size // len(package)
-        tam_pacote = len(package)
-        logger.debug("o envio dos pacotes vai começar agora. Vou enviar %s pacotes de tamanho %s", qtd_pacotes, tam_pacote)
-        
+        limite = BUFFER_AMOUNT_LIMIT[test_size]
+        logger.info("%s: enviando %s pacotes de %s bytes", label, qtd_pacotes, len(package))
+
         for i in range(0, qtd_pacotes):
-            throughput_channel.send(package)
-            if throughput_channel.bufferedAmount > BUFFER_AMOUNT_LIMIT[test_size]:
-                state.events["throughput_buffer_drained"].clear()
-                await event_timeout(state.events["throughput_buffer_drained"], SHORT_TIMEOUT)
-        control_channel.send(END_THROUGHPUT)
+            if not safe_send(throughput_channel, package):
+                logger.warning("%s: canal de vazão fechou no pacote %s/%s. Abortando o envio.",
+                               label, i, qtd_pacotes)
+                return False
+            if not await _wait_buffer_drain(throughput_channel, limite, label, i, qtd_pacotes):
+                return False
+        safe_send(control_channel, END_THROUGHPUT)
+        return True
     except Exception as e:
-        print(f'Erro no envio dos dados da vazão: {e}')
+        logger.exception("Erro no envio dos dados da vazão: %s", e)
+        return False
+
+
+async def _wait_buffer_drain(throughput_channel, limite, label, pacote, qtd_pacotes):
+    """Segura o envio até o buffer voltar abaixo do limite.
+
+    O código antigo esperava UMA vez e seguia enfileirando mesmo sem drenar. Com
+    100MB isso enche a fila do gargalo em segundos: o RTT passa dos 0,5s que o
+    consent freshness do ICE (RFC 7675) tolera, o aioice acumula 6 falhas e fecha
+    a conexão ~30s depois. Aqui a espera é um laço de verdade.
+    """
+    stalls = 0
+    while throughput_channel.bufferedAmount > limite:
+        state.events["throughput_buffer_drained"].clear()
+        if throughput_channel.bufferedAmount <= limite:
+            return True  # drenou entre a checagem e o clear
+        if await event_timeout(state.events["throughput_buffer_drained"], BUFFER_DRAIN_TIMEOUT):
+            stalls = 0
+            continue
+        stalls += 1
+        logger.warning("%s: buffer parado em %s bytes há %ss (pacote %s/%s)",
+                       label, throughput_channel.bufferedAmount,
+                       stalls * BUFFER_DRAIN_TIMEOUT, pacote, qtd_pacotes)
+        if stalls >= MAX_BUFFER_STALLS:
+            logger.error("%s: buffer não drenou em %ss. Abortando o envio pra não derrubar a conexão.",
+                         label, MAX_BUFFER_STALLS * BUFFER_DRAIN_TIMEOUT)
+            return False
+        if throughput_channel.readyState != "open":
+            return False
+    return True
 
 
 async def calculate_throughput(role, PEER, throughput_finished, timeout=5):
@@ -54,14 +90,12 @@ async def calculate_throughput(role, PEER, throughput_finished, timeout=5):
         vazao_em_Mbps = vazao_em_MB * 8
         if role == "server":
             state.results[f"{label}_download"] = vazao_em_Mbps
-            # state.server["channels"][CONTROL].send(
-            #     f'RESULTADO DO TESTE DE client.UPLOAD: \n A vazão calculada é de {vazao_em_Mbps} Mb/s')
-            state.server["channels"][CONTROL].send(json.dumps({
+            safe_send(state.server["channels"][CONTROL], json.dumps({
                 "msg": "upload",
                 "value": vazao_em_Mbps,
                 "test_size": total_bytes_esperada
             }))
-            
+
             #logger.info("RESULTADO DO TESTE DE server.DOWNLOAD: \n A vazão calculada é de %s Mb/s para o tamanho de %s Mbytes", vazao_em_Mbps, int(PEER["qtd_total_bytes"])//10**6)
             
 
@@ -71,21 +105,19 @@ async def calculate_throughput(role, PEER, throughput_finished, timeout=5):
             #logger.debug("sou cliente e ja tenho o download: %s Mbps", vazao_em_Mbps)
             state.results[f"{label}_download"] = vazao_em_Mbps  # It's here when the tests finish for client
             logger.info("Resultados do cliente: %s", state.results)
-            # state.client["control_channel"].send(
-            #     f'RESULTADO DO TESTE DE server.UPLOAD: \n A vazão calculada é de {vazao_em_Mbps} Mb/s')
-            state.client["control_channel"].send(json.dumps({
+            safe_send(state.client["control_channel"], json.dumps({
                 "msg": "upload",
                 "value": vazao_em_Mbps,
                 "test_size": total_bytes_esperada
             }))
-            #logger.info("RESULTADO DO TESTE DE client.DOWNLOAD: \n A vazão calculada é de %s Mb/s para o tamanho de %s Mbytes", vazao_em_Mbps, int(PEER["qtd_total_bytes"])//10**6)
     else:
         # meu download é none e o do outro par é none o upload
+        logger.warning("%s: download expirou após %ss sem receber END_THROUGHPUT do par.", label, timeout)
         state.results[f"{label}_download"] = None
         if role == "server":
-            state.server["channels"][CONTROL].send(UPLOAD_ERROR)
+            safe_send(state.server["channels"][CONTROL], UPLOAD_ERROR)
         else:
-            state.client["control_channel"].send(UPLOAD_ERROR)
+            safe_send(state.client["control_channel"], UPLOAD_ERROR)
 
 async def calculate_server_upload(test_size):
     state.server["channels"][THROUGHPUT].bufferedAmountLowThreshold = BUFFER_AMOUNT_LIMIT[test_size]
@@ -98,10 +130,11 @@ async def calculate_server_upload(test_size):
 async def start_server_upload_timeout():
     response = await event_timeout(state.events["start_server_upload"], SHORT_TIMEOUT)
     if response:
-        state.server["channels"][CONTROL].send(
-                    "Não recebi o ACK do resultado do upload do cliente. Vou iniciar o teste mesmo assim.")
+        safe_send(state.server["channels"][CONTROL], "Recebi ACK do upload do cliente. Vou iniciar o teste agora.")
     else:
-        state.server["channels"][CONTROL].send("Recebi ACK do upload do cliente. Vou iniciar o teste agora.")
+        logger.warning("não recebi o ACK do upload do cliente em %ss. Iniciando o upload mesmo assim.", SHORT_TIMEOUT)
+        safe_send(state.server["channels"][CONTROL],
+                  "Não recebi o ACK do resultado do upload do cliente. Vou iniciar o teste mesmo assim.")
 
 
 async def send_ack_end_upload(control_channel, timeout, test_size):
@@ -110,14 +143,15 @@ async def send_ack_end_upload(control_channel, timeout, test_size):
                                      "upload_error": state.events["upload_error"]
                                      }, timeout)
     if response == "upload_received":
-        control_channel.send(UPLOAD_RECEIVED)
+        safe_send(control_channel, UPLOAD_RECEIVED)
     else:
+        logger.warning("%s: não recebi o resultado do meu upload (%s). Seguindo com upload=None.", label, response)
         if state.results[f"{label}_upload"] is not None:
             state.results[f"{label}_upload"] = None
         if state.role == "client":
-            control_channel.send(UPLOAD_RECEIVED)  # vou enviar mesmo que tenha dado errado pra que o teste continue
+            safe_send(control_channel, UPLOAD_RECEIVED)  # vou enviar mesmo que tenha dado errado pra que o teste continue
         else:
-            control_channel.send(UPLOAD_ERROR)
+            safe_send(control_channel, UPLOAD_ERROR)
 
 
 async def send_end_test(control_channel, timeout, test_size):
@@ -125,9 +159,11 @@ async def send_end_test(control_channel, timeout, test_size):
     response = await events_timeout({"upload_received": state.events["upload_received"],
                                      "upload_error": state.events["upload_error"]
                                      }, timeout)
+    if response != "upload_received":
+        logger.warning("%s: fim do teste sem confirmação de upload (%s).", label, response)
     if response == "upload_error" and state.results[f"{label}_upload"] is not None:
         state.results[f"{label}_upload"] = None
-    control_channel.send(END_TEST)  # somente aqui eu envio o fim do teste, quando da certo ou quando da errado
+    safe_send(control_channel, END_TEST)  # somente aqui eu envio o fim do teste, quando da certo ou quando da errado
 
 
 

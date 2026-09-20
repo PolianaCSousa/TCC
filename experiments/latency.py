@@ -1,6 +1,6 @@
 from constants import (LAT_ACK, LAT, ACK, END_ITERATION, LATENCY, THROUGHPUT_LABELS)
 import time
-from utils import events_timeout, event_timeout
+from utils import events_timeout, event_timeout, safe_send
 import logging
 from state import state
 from statistics import mean, pstdev
@@ -10,19 +10,19 @@ logger = logging.getLogger(__name__)
 # region Calculate and send latency package
 async def server_send_lat_ack(latency_channel):
     state.server[state.t0_latency_key()].append(time.time_ns())
-    latency_channel.send(LAT_ACK)
+    safe_send(latency_channel, LAT_ACK)
     #logger.info(">>> enviei LAT_ACK")
 # endregion
 
 
 async def client_send_lat_package(latency_channel):
     state.client[state.t0_latency_key()].append(time.time_ns())
-    latency_channel.send(LAT)
+    safe_send(latency_channel, LAT)
     #logger.info(">>> enviei LAT")
 
 
 async def client_send_ack(latency_channel):
-    latency_channel.send(ACK)
+    safe_send(latency_channel, ACK)
     #logger.info(">>> enviei ACK")
 
 async def handle_server_latency_timeout(control_channel, timeout):
@@ -35,7 +35,9 @@ async def handle_server_latency_timeout(control_channel, timeout):
         t1 = state.server[state.t1_latency_key()]
         if len(t1) < len(t0):          # só anexa None se estou devendo um t1 nesta iteração
             t1.append(None)
-            control_channel.send(END_ITERATION)
+            # este é o send que estourava InvalidStateError: a corrotina fica presa aqui
+            # por até `timeout` segundos e acorda depois da conexão já ter fechado
+            safe_send(control_channel, END_ITERATION)
 
 def calc_latency(all_measures, result_key, test_size):
 

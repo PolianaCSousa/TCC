@@ -1,6 +1,30 @@
 import asyncio
 import json
+import logging
+from aiortc.exceptions import InvalidStateError
 from state import state
+
+logger = logging.getLogger(__name__)
+
+
+def safe_send(channel, data) -> bool:
+    """Envia só se o canal ainda estiver aberto. Devolve se o envio aconteceu.
+
+    Quando a conexão cai, as corrotinas presas em event_timeout acordam depois e
+    tentam enviar num canal já morto — o aiortc levanta InvalidStateError e o pyee
+    transforma isso em exceção não tratada no event loop.
+    """
+    if channel is None or channel.readyState != "open":
+        logger.debug("send ignorado: canal %s", getattr(channel, "readyState", "inexistente"))
+        return False
+    try:
+        channel.send(data)
+        return True
+    except InvalidStateError:
+        # corrida: o canal fechou entre o readyState e o send
+        logger.debug("send ignorado: canal fechou durante o envio")
+        return False
+
 
 def try_parse_json(message):
     try:
