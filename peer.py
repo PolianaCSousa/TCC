@@ -9,7 +9,8 @@ from kubo_client import KuboClient
 from ipfs_signaling import IpfsSignaling
 from swarm_connector import SwarmConnector
 from config import (
-    get_connection_configuration
+    get_connection_configuration,
+    relax_ice_consent
 )
 from custom_types import Client, Server, Peer, Results
 from utils import try_parse_json, event_timeout, events_timeout, update_peers_list, safe_send
@@ -676,6 +677,8 @@ async def main():
     # único rastro é o "Connection state: closed", sem dizer o motivo.
     logging.getLogger("aioice").setLevel(logging.INFO)
 
+    # precisa valer antes da primeira conexão subir: é quando o query_consent começa
+    relax_ice_consent()
 
     # Inicializando o Client do Kubo
     await kubo.start()
