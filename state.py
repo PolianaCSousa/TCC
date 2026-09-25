@@ -79,6 +79,7 @@ class PeerState:
             "lat_ack_error": asyncio.Event(),
             "upload_error": asyncio.Event(),
             "upload_received": asyncio.Event(),
+            "send_aborted": asyncio.Event(),
             "start_server_upload": asyncio.Event(),
             "latency_finished": asyncio.Event(),
             "throughput_finished": asyncio.Event(),
@@ -115,6 +116,7 @@ class PeerState:
         self.events["throughput_finished"].clear()
         self.events["test_complete"].clear()
         self.events["upload_error"].clear()
+        self.events["send_aborted"].clear()
 
     def reset_for_new_round(self):
         for event in self.events.values():

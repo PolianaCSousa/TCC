@@ -22,6 +22,9 @@ END_THROUGHPUT = "fim"
 UPLOAD_RECEIVED = "upload_received"
 LAT_ACK_ERROR = "Erro na latência. O pacote LAT_ACK não foi entregue."
 UPLOAD_ERROR = "Upload não foi recebido"
+# o remetente desistiu do envio no meio: sem este aviso o receptor fica esperando o
+# END_THROUGHPUT que nunca vem, e gasta test_size/MIN_THROUGHPUT (800s no 100MB) à toa
+SEND_ABORTED = "envio abortado pelo remetente"
 END_TEST = "Teste finalizado"
 LAT = "LAT"
 LAT_ACK = "LAT-ACK"
@@ -88,6 +91,25 @@ LATENCY_PROBE_INTERVAL = 0.002 # 20 ms
 # Foi isso que matou a conexão logo depois que o teste de 100MB começou.
 BUFFER_DRAIN_TIMEOUT = 5         # quanto espero, por vez, o bufferedamountlow chegar
 MAX_BUFFER_STALLS = 6            # 6 esperas seguidas sem drenar (~30s) = link travado, aborto o envio
+
+# --- autoajuste do envio por atraso (controle estilo Vegas/BBR, simplificado) ---
+# O congestion control do SCTP reage a PERDA, e perda só existe depois que a fila do
+# gargalo transbordou: por projeto ele ENCHE a fila. Em 2026-09-23 isso levou a
+# loaded_latency a 1451ms (contra os 500ms que o consent do ICE tolera) e a associação
+# SCTP travou em 34% do teste de 100MB. Aqui a realimentação é o RTT medido pelas
+# próprias sondas de latência sob carga, que já rodam em paralelo ao envio.
+LOADED_LATENCY_TARGET_MS = 300   # alvo: folga sobre os 500ms, sem estrangular o link
+PACING_BATCH = 50                # pacotes entre um ajuste e o seguinte (~70KB)
+PACING_STEP = 0.002              # 2ms: piso do passo, e limiar pra zerar a pausa
+# AIMD clássico não serve aqui: são só LATENCY_TEST_SIZE=20 sondas por fase, ou seja
+# ~20 oportunidades de ajuste no teste inteiro. Com recuperação aditiva de 2ms o
+# controlador sobe ao teto em 8 ajustes e não voltaria nunca — mediria 1Mbps num link
+# de 8. Por isso os dois sentidos são multiplicativos: sobe x2, desce x0,5.
+PACING_DECAY = 0.5               # fator de recuperação quando o RTT está confortável
+# teto: 70KB por lote / 0,2s = ~2,8Mbps de piso. Abaixo disso não faz sentido — seria
+# estrangular mais do que o link mais humilde que a ferramenta se propõe a medir.
+PACING_MAX_PAUSE = 0.2
+PACING_LOW_WATER = 0.7           # só volta a acelerar abaixo de 70% do alvo (histerese)
 
 # --- recuperação de rodada ---
 RETRY_INTERVAL_SECONDS = 10      # espera curta antes de reparear quando a rodada foi abortada

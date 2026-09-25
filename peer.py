@@ -19,7 +19,7 @@ from state import state
 from constants import (
     CONTROL, LATENCY, THROUGHPUT, PACKAGE_LOSS, HEARTBEAT,
     END_LATENCY, END_THROUGHPUT, END_TEST, START_LOADED_PACKAGES, END_LOADED_PACKAGES, LOADED_LATENCY, LATENCY_PROBE_INTERVAL, LATENCY_TEST_SIZE,
-    UPLOAD_RECEIVED, UPLOAD_ERROR, LAT_ACK_ERROR, PACKAGE_LOSS_TIMEOUT,
+    UPLOAD_RECEIVED, UPLOAD_ERROR, SEND_ABORTED, LAT_ACK_ERROR, PACKAGE_LOSS_TIMEOUT,
     LAT, LATENCY_TIMEOUT, LOADED_LATENCY_TIMEOUT,
     MIN_THROUGHPUT_BytePerSec, BYTES_THROUGHPUT_10MB, START_THROUGHPUT,
     BYTES_THROUGHPUT_100KB, BYTES_THROUGHPUT_100MB, BYTES_THROUGHPUT_1MB,
@@ -38,7 +38,8 @@ from experiments.latency import(
 from experiments.throughput import(
     send_throughput_data,
     calculate_throughput,
-    send_ack_end_upload
+    send_ack_end_upload,
+    abort_upload
 )
 
 logger = logging.getLogger(__name__)
@@ -242,6 +243,8 @@ def _register_client_control_channel_handlers():
             state.events["throughput_finished"].set()
         elif message == UPLOAD_ERROR:
             state.events["upload_error"].set()
+        elif message == SEND_ABORTED:
+            state.events["send_aborted"].set()
         elif message == END_TEST:
             logger.info("------ TESTE FINALIZADO ------")
             state.events["test_complete"].set()
@@ -357,9 +360,12 @@ async def calculate_client_throughput(test_size):
 async def calculate_client_upload(test_size):
     # rastreada também: ela é filha desta fase, e cancelar só a mãe deixaria esta viva
     loaded_latency_task = spawn_round_task(client_latency(LATENCY_TEST_SIZE, LOADED_LATENCY, LATENCY_PROBE_INTERVAL, test_size))
-    await send_throughput_data(state.client["throughput_channel"], state.client["control_channel"], state.client,test_size)
-    ## a task abaixo irá aguardar o evento upload_received ou upload_error
-    await send_ack_end_upload(state.client["control_channel"], test_size / MIN_THROUGHPUT_BytePerSec, test_size)
+    enviou = await send_throughput_data(state.client["throughput_channel"], state.client["control_channel"], state.client,test_size)
+    if enviou:
+        ## a task abaixo irá aguardar o evento upload_received ou upload_error
+        await send_ack_end_upload(state.client["control_channel"], test_size / MIN_THROUGHPUT_BytePerSec, test_size)
+    else:
+        abort_upload(state.client["control_channel"], test_size)
     await loaded_latency_task
 
 
@@ -501,6 +507,8 @@ def _register_server_control_channel_handler():
             state.events["start_server_upload"].set()
         elif message == UPLOAD_ERROR:
             state.events["upload_error"].set()
+        elif message == SEND_ABORTED:
+            state.events["send_aborted"].set()
         elif message == LAT_ACK_ERROR:
             state.events["lat_ack_error"].set()
         elif message == END_PACKAGE_LOSS:
