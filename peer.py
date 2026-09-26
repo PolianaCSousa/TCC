@@ -26,7 +26,8 @@ from constants import (
     END_ITERATION, END_LAT_PACKAGES, END_PACKAGE_LOSS, ACK_PACKAGE_LOSS,
     THROUGHPUT_LABELS, BUFFER_AMOUNT_LIMIT, IPFS_TOPIC, CLIENT, SERVER, TEST_INTERVAL_SECONDS,
     HEARTBEAT_INTERVAL_SECONDS, HEARTBEAT_PACKAGE_SIZE,
-    ABORTED, RETRY_INTERVAL_SECONDS, ROUND_WATCHDOG_SECONDS, PAIRING_TIMEOUT_SECONDS
+    ABORTED, RETRY_INTERVAL_SECONDS, ROUND_WATCHDOG_SECONDS, PAIRING_TIMEOUT_SECONDS,
+    REPLY_TIMEOUT_SECONDS
 )
 from experiments.latency import(
     server_send_lat_ack,
@@ -234,6 +235,8 @@ def _register_client_control_channel_handlers():
         elif message == END_ITERATION:
             state.events["end_iteration"].set()
         elif message == END_THROUGHPUT:
+            # t1 na CHEGADA: quem consome o evento pode chegar dezenas de segundos depois
+            state.client["t1_throughput"] = time.time()
             state.events["throughput_finished"].set()
         elif message == UPLOAD_ERROR:
             state.events["upload_error"].set()
@@ -245,6 +248,9 @@ def _register_client_control_channel_handlers():
         elif message == END_PACKAGE_LOSS:
             client_calculates_server_package_loss()
         elif msg is not None and msg["msg"] == 'upload':
+            # espelha o "Upload do servidor" do outro lado: sem esta linha não dá pra
+            # saber se o resultado chegou e não disparou, ou se nunca chegou (2026-09-26)
+            logger.info("Upload do cliente: %s", msg["value"])
             label = THROUGHPUT_LABELS[msg["test_size"]]
             state.results[f"{label}_upload"] = msg["value"]
             state.events["upload_received"].set()
@@ -280,6 +286,7 @@ def _register_client_throughput_channel_handlers():
     def on_throughput_message(message):
         if state.client["qtd_packages"] == 0:
             state.client["t0_throughput"] = time.time()  # retorna o tempo em segundos
+            state.client["t1_throughput"] = None         # zera: o END_THROUGHPUT deste teste carimba
         state.client["qtd_packages"] = state.client["qtd_packages"] + 1
     
 
@@ -345,10 +352,10 @@ async def calculate_client_throughput(test_size):
     state.client["throughput_channel"].bufferedAmountLowThreshold = BUFFER_AMOUNT_LIMIT[test_size]
     await calculate_client_upload(test_size)
     await calculate_client_download(test_size)
-    #wait for the test finish completely
-    if not await event_timeout(state.events["test_complete"], test_size / MIN_THROUGHPUT_BytePerSec):
+    #wait for the test finish completely — é uma RESPOSTA do par, não uma transferência
+    if not await event_timeout(state.events["test_complete"], REPLY_TIMEOUT_SECONDS):
         logger.warning("%s: não recebi END_TEST do par em %ss. Seguindo pro próximo tamanho.",
-                       THROUGHPUT_LABELS[test_size], test_size / MIN_THROUGHPUT_BytePerSec)
+                       THROUGHPUT_LABELS[test_size], REPLY_TIMEOUT_SECONDS)
 
 
 async def calculate_client_upload(test_size):
@@ -357,7 +364,7 @@ async def calculate_client_upload(test_size):
     enviou = await send_throughput_data(state.client["throughput_channel"], state.client["control_channel"], state.client,test_size)
     if enviou:
         ## a task abaixo irá aguardar o evento upload_received ou upload_error
-        await send_ack_end_upload(state.client["control_channel"], test_size / MIN_THROUGHPUT_BytePerSec, test_size)
+        await send_ack_end_upload(state.client["control_channel"], REPLY_TIMEOUT_SECONDS, test_size)
     else:
         abort_upload(state.client["control_channel"], test_size)
     await loaded_latency_task
@@ -498,6 +505,8 @@ def _register_server_control_channel_handler():
         elif message == END_LOADED_PACKAGES:
             calculate_server_latency(LATENCY_TEST_SIZE, LOADED_LATENCY, state.server["qtd_total_bytes"])
         elif message == END_THROUGHPUT:
+            # t1 na CHEGADA: quem consome o evento pode chegar dezenas de segundos depois
+            state.server["t1_throughput"] = time.time()
             state.events["throughput_finished"].set()
         elif message == UPLOAD_RECEIVED:
             state.events["start_server_upload"].set()
@@ -536,6 +545,7 @@ def _register_server_throughput_channel_handler():
     def on_throughput_message(message):
         if state.server["qtd_packages"] == 0:
             state.server["t0_throughput"] = time.time()  # retorna o tempo em segundos
+            state.server["t1_throughput"] = None         # zera: o END_THROUGHPUT deste teste carimba
         state.server["qtd_packages"] = state.server["qtd_packages"] + 1
 
     @state.server["channels"][THROUGHPUT].on("bufferedamountlow")

@@ -19,7 +19,8 @@ from constants import (
     PACING_STEP,
     PACING_DECAY,
     PACING_MAX_PAUSE,
-    PACING_LOW_WATER)
+    PACING_LOW_WATER,
+    REPLY_TIMEOUT_SECONDS)
 import logging
 from state import state
 import json
@@ -190,7 +191,7 @@ def abort_upload(control_channel, test_size):
     """
     label = THROUGHPUT_LABELS[test_size]
     logger.warning("%s: meu envio falhou. Avisando o par e seguindo sem esperar os %ss.",
-                   label, test_size / MIN_THROUGHPUT_BytePerSec)
+                   label, REPLY_TIMEOUT_SECONDS)
     state.results[f"{label}_upload"] = None
     safe_send(control_channel, SEND_ABORTED)
 
@@ -211,8 +212,12 @@ async def calculate_throughput(role, PEER, throughput_finished):
     response = await events_timeout({"recebido": throughput_finished,
                                      "abortado": state.events["send_aborted"]}, timeout=None)
     if response == "recebido":
-        PEER["t1_throughput"] = time.time()
-        tempo = PEER["t1_throughput"] - PEER["t0_throughput"]
+        # t1 é carimbado no handler do END_THROUGHPUT, na CHEGADA. Aqui pode ser muito
+        # depois: o cliente consome este evento só depois de esperar as 20 sondas de
+        # latência, que sob carga levam até 80s. Em 2026-09-26 isso deu 10MB_download
+        # de 0,48 Mbps para um download real de ~7 — o "tempo" incluía 40s de nada.
+        t1 = PEER["t1_throughput"] or time.time()   # None só em caso degenerado
+        tempo = t1 - PEER["t0_throughput"]
         vazao_em_bytes = ((PEER["qtd_packages"] - 1) * BYTES_PER_PACKAGE) / tempo  # 1400 é o tamanho do pacote
         vazao_em_MB = round(vazao_em_bytes / 10 ** 6, 2)
         vazao_em_Mbps = vazao_em_MB * 8
@@ -249,7 +254,7 @@ async def calculate_server_upload(test_size):
         safe_send(controle, END_TEST)
         return
             ## a task abaixo irá aguardar o evento upload_received ou upload_error
-    await send_end_test(controle, test_size / MIN_THROUGHPUT_BytePerSec, test_size)
+    await send_end_test(controle, REPLY_TIMEOUT_SECONDS, test_size)   # resposta, não transferência
 
 
 async def start_server_upload_timeout():

@@ -126,6 +126,13 @@ ROUND_WATCHDOG_SECONDS = 45 * 60
 # pra rodada legítima longa, e não serve pra esta fase (ver utils.wait_round_outcome).
 PAIRING_TIMEOUT_SECONDS = 60
 
+# prazo pra o par RESPONDER a algo que ele já recebeu (o resultado calculado do meu
+# upload; o END_TEST). A resposta leva segundos — a fila de 1MB drena em 8s no link
+# de 1Mbps, mais RTT — e não a duração de uma transferência. Três esperas usavam
+# `test_size / MIN_THROUGHPUT` (800s no 100MB) pra isso; em 2026-09-26 o cliente ficou
+# 13min em send_ack_end_upload por um resultado que não chegou.
+REPLY_TIMEOUT_SECONDS = 60
+
 # IPFS topic name
 IPFS_TOPIC = "tcc-polics"
 
