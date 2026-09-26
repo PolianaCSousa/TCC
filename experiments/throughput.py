@@ -110,12 +110,13 @@ async def send_throughput_data(throughput_channel, control_channel, PEER, test_s
         logger.info("%s: enviando %s pacotes de %s bytes", label, qtd_pacotes, len(package))
 
         pacer = _DelayPacer(PEER, label)
+        watch = _DrainWatch()                    # um por envio: o contador atravessa o laço
         for i in range(0, qtd_pacotes):
             if not safe_send(throughput_channel, package):
                 logger.warning("%s: canal de vazão fechou no pacote %s/%s. Abortando o envio.",
                                label, i, qtd_pacotes)
                 return False
-            if not await _wait_buffer_drain(throughput_channel, limite, label, i, qtd_pacotes):
+            if not await _wait_buffer_drain(throughput_channel, limite, label, i, qtd_pacotes, watch):
                 return False
             await pacer.step(i)
         logger.info("%s: %s", label, pacer.resumo())
@@ -126,7 +127,24 @@ async def send_throughput_data(throughput_channel, control_channel, PEER, test_s
         return False
 
 
-async def _wait_buffer_drain(throughput_channel, limite, label, pacote, qtd_pacotes):
+class _DrainWatch:
+    """Contador de timeouts do buffer que SOBREVIVE entre chamadas de _wait_buffer_drain.
+
+    Antes o contador nascia zerado a cada chamada, e o aborto exigia os 6 timeouts
+    dentro de UMA chamada. Em 2026-09-26 o link caiu pra ~200 B/s: a cada ~7s escoava
+    1 pacote, o buffer cruzava o limite, a função retornava True, o laço mandava 1
+    pacote e chamava de novo — contador zerado. Ficou 22 min logando "há 5s", nunca
+    "há 10s", avançando 1 pacote por aviso, até ser morto na mão. Um link gotejando
+    é indistinguível de um link morto pra medição, e tem que abortar como um.
+
+    Aqui só uma drenagem DE VERDADE — o evento bufferedamountlow chegando dentro do
+    prazo — zera o contador. Timeouts acumulam entre chamadas.
+    """
+    def __init__(self):
+        self.stalls = 0
+
+
+async def _wait_buffer_drain(throughput_channel, limite, label, pacote, qtd_pacotes, watch):
     """Segura o envio até o buffer voltar abaixo do limite.
 
     O código antigo esperava UMA vez e seguia enfileirando mesmo sem drenar. Com
@@ -134,19 +152,18 @@ async def _wait_buffer_drain(throughput_channel, limite, label, pacote, qtd_paco
     consent freshness do ICE (RFC 7675) tolera, o aioice acumula 6 falhas e fecha
     a conexão ~30s depois. Aqui a espera é um laço de verdade.
     """
-    stalls = 0
     while throughput_channel.bufferedAmount > limite:
         state.events["throughput_buffer_drained"].clear()
         if throughput_channel.bufferedAmount <= limite:
             return True  # drenou entre a checagem e o clear
         if await event_timeout(state.events["throughput_buffer_drained"], BUFFER_DRAIN_TIMEOUT):
-            stalls = 0
+            watch.stalls = 0
             continue
-        stalls += 1
+        watch.stalls += 1
         logger.warning("%s: buffer parado em %s bytes há %ss (pacote %s/%s)",
                        label, throughput_channel.bufferedAmount,
-                       stalls * BUFFER_DRAIN_TIMEOUT, pacote, qtd_pacotes)
-        if stalls >= MAX_BUFFER_STALLS:
+                       watch.stalls * BUFFER_DRAIN_TIMEOUT, pacote, qtd_pacotes)
+        if watch.stalls >= MAX_BUFFER_STALLS:
             logger.error("%s: buffer não drenou em %ss. Abortando o envio pra não derrubar a conexão.",
                          label, MAX_BUFFER_STALLS * BUFFER_DRAIN_TIMEOUT)
             return False
