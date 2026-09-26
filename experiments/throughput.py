@@ -164,8 +164,15 @@ async def _wait_buffer_drain(throughput_channel, limite, label, pacote, qtd_paco
                        label, throughput_channel.bufferedAmount,
                        watch.stalls * BUFFER_DRAIN_TIMEOUT, pacote, qtd_pacotes)
         if watch.stalls >= MAX_BUFFER_STALLS:
-            logger.error("%s: buffer não drenou em %ss. Abortando o envio pra não derrubar a conexão.",
+            logger.error("%s: buffer não drenou em %ss. SCTP travado: derrubando a rodada pra reparear.",
                          label, MAX_BUFFER_STALLS * BUFFER_DRAIN_TIMEOUT)
+            # Não adianta só abortar o envio e avisar o par: o aiortc tem UMA fila de
+            # saída pra todos os datachannels, e o SEND_ABORTED entraria atrás dos
+            # ~1MB de vazão travada — nunca sairia. Foi o deadlock de 2026-09-26:
+            # cliente e servidor esperando um ao outro por 45min. Um SCTP que não
+            # escoa 1400 bytes em 30s é uma conexão morta; a saída é reparear com
+            # uma associação nova, e é isso que connection_lost faz o main() fazer.
+            state.abort_round(f"SCTP travado no envio de {label}")
             return False
         if throughput_channel.readyState != "open":
             return False

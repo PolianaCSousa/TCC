@@ -105,14 +105,8 @@ def finish_round():
     state.events["round_done"].set()
 
 
-#A conexão morreu antes do fim. Acorda o loop principal pra reparear.
-def abort_round(reason):
-    if not state.round_active:
-        return  # o par fechou a conexão antiga entre rodadas: é o fluxo normal
-    state.round_active = False
-    state.results["status"] = ABORTED
-    logger.error("Rodada abortada: %s", reason)
-    state.events["connection_lost"].set()
+# abort_round vive em state.py: o throughput também precisa derrubar a rodada
+# (SCTP travado) e não pode importar este módulo
 # endregion
 
 
@@ -144,12 +138,12 @@ def _make_state_change_handler(pc):
                 logger.info("Candidate local: %s (%s)", info["local_ip"], info["local_type"])
         elif pc.connectionState == "failed":
             logger.error("ICE falhou — nenhum par de candidates funcionou.")
-            abort_round("ICE falhou")
+            state.abort_round("ICE falhou")
         elif pc.connectionState == "closed":
             # o aiortc só chega em "closed" sozinho quando o DTLS morre, e o DTLS morre
             # quando o aioice expira o consent freshness (RFC 7675): 6 binding requests
             # sem resposta, ~30s. Ou seja, o par ficou inalcançável.
-            abort_round("conexão fechada (consent freshness do ICE expirou ou o par saiu)")
+            state.abort_round("conexão fechada (consent freshness do ICE expirou ou o par saiu)")
 
     return on_state_change
 

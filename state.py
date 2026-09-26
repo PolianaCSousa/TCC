@@ -1,6 +1,10 @@
 import asyncio
+import logging
 from custom_types import Client, Server, Peer, Results
-from constants import THROUGHPUT_LABELS, COMPLETE
+from constants import THROUGHPUT_LABELS, COMPLETE, ABORTED
+
+logger = logging.getLogger(__name__)
+
 
 class PeerState:
     def __init__(self) -> None:
@@ -117,6 +121,20 @@ class PeerState:
         self.events["test_complete"].clear()
         self.events["upload_error"].clear()
         self.events["send_aborted"].clear()
+
+    def abort_round(self, reason):
+        """A conexão morreu antes do fim. Acorda o loop principal pra reparear.
+
+        Mora aqui (e não em peer.py) porque quem detecta a morte nem sempre é o
+        handler de estado do ICE: o `_wait_buffer_drain` em experiments/throughput.py
+        também precisa chamar, e ele não pode importar peer.py (import circular).
+        """
+        if not self.round_active:
+            return  # o par fechou a conexão antiga entre rodadas: é o fluxo normal
+        self.round_active = False
+        self.results["status"] = ABORTED
+        logger.error("Rodada abortada: %s", reason)
+        self.events["connection_lost"].set()
 
     def reset_for_new_round(self):
         for event in self.events.values():
