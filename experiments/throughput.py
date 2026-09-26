@@ -20,7 +20,9 @@ from constants import (
     PACING_DECAY,
     PACING_MAX_PAUSE,
     PACING_LOW_WATER,
-    REPLY_TIMEOUT_SECONDS)
+    REPLY_TIMEOUT_SECONDS,
+    STALL_WINDOW_SECONDS,
+    STALL_FLOOR_BytePerSec)
 import logging
 from state import state
 import json
@@ -140,9 +142,37 @@ class _DrainWatch:
 
     Aqui só uma drenagem DE VERDADE — o evento bufferedamountlow chegando dentro do
     prazo — zera o contador. Timeouts acumulam entre chamadas.
+
+    O contador NÃO basta: em 2026-09-26 19:18 o gotejo era de 1 pacote a cada ~10s,
+    o evento chegava dentro da janela seguinte de 5s e zerava o contador — 82 avisos
+    "há 5s", nunca 6 seguidos. Por isso a decisão de verdade é `taxa_abaixo_do_piso`:
+    bytes que avançaram na janela, independente de quando o evento chega.
     """
-    def __init__(self):
+    def __init__(self, clock=time.monotonic):
         self.stalls = 0
+        self.clock = clock          # injetável: o teste avança o tempo sem dormir
+        self.t_ref = None           # âncora da janela: fixada na 1ª chamada, não aqui
+        self.pacotes_ref = None
+
+    def taxa_abaixo_do_piso(self, pacote):
+        """(True, taxa) se na janela o envio ficou abaixo do piso; senão (False, taxa).
+
+        Antes da janela fechar não opina — um teste de 100KB acaba em <1s e nunca
+        chega a decidir. Uma janela boa reancora, então o gotejo é medido sempre sobre
+        os últimos STALL_WINDOW_SECONDS, não desde o início do envio.
+        """
+        agora = self.clock()
+        if self.t_ref is None:
+            self.t_ref, self.pacotes_ref = agora, pacote
+            return False, None
+        decorrido = agora - self.t_ref
+        if decorrido < STALL_WINDOW_SECONDS:
+            return False, None
+        taxa = (pacote - self.pacotes_ref) * BYTES_PER_PACKAGE / decorrido
+        if taxa < STALL_FLOOR_BytePerSec:
+            return True, taxa
+        self.t_ref, self.pacotes_ref = agora, pacote
+        return False, taxa
 
 
 async def _wait_buffer_drain(throughput_channel, limite, label, pacote, qtd_pacotes, watch):
@@ -154,6 +184,15 @@ async def _wait_buffer_drain(throughput_channel, limite, label, pacote, qtd_paco
     a conexão ~30s depois. Aqui a espera é um laço de verdade.
     """
     while throughput_channel.bufferedAmount > limite:
+        # TAXA, não "drenou ou não": 1 pacote a cada 10s dispara o evento e zera o
+        # contador abaixo. Só a janela com piso pega um gotejo, seja qual for o ritmo.
+        travado, taxa = watch.taxa_abaixo_do_piso(pacote)
+        if travado:
+            logger.error("%s: %.0f B/s nos últimos %ss, abaixo do piso de %.0f B/s. "
+                         "SCTP travado: derrubando a rodada pra reparear.",
+                         label, taxa, STALL_WINDOW_SECONDS, STALL_FLOOR_BytePerSec)
+            state.abort_round(f"SCTP travado no envio de {label}")
+            return False
         state.events["throughput_buffer_drained"].clear()
         if throughput_channel.bufferedAmount <= limite:
             return True  # drenou entre a checagem e o clear

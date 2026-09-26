@@ -92,6 +92,18 @@ LATENCY_PROBE_INTERVAL = 0.002 # 20 ms
 BUFFER_DRAIN_TIMEOUT = 5         # quanto espero, por vez, o bufferedamountlow chegar
 MAX_BUFFER_STALLS = 6            # 6 esperas seguidas sem drenar (~30s) = link travado, aborto o envio
 
+# Detector por TAXA. O contador acima só pega o buffer LITERALMENTE parado: um
+# gotejo de 1 pacote a cada ~10s dispara o evento de drenagem, zera o contador e
+# passa por link saudável — 82 avisos "há 5s" em 13min em 2026-09-26 19:18, até
+# ser morto na mão. Aqui a pergunta é outra: quantos bytes avançaram nos últimos
+# STALL_WINDOW_SECONDS? Abaixo do piso, seja qual for o ritmo do evento, é SCTP
+# travado e a rodada cai. O piso é uma fração do link mais lento que a ferramenta
+# assume (MIN_THROUGHPUT): um link legítimo de 0,5Mbps passa com 5x de folga; o
+# gotejo observado (~140 B/s) falha por ~90x.
+STALL_WINDOW_SECONDS = 30
+STALL_RATE_FRACTION = 0.1
+STALL_FLOOR_BytePerSec = MIN_THROUGHPUT_BytePerSec * STALL_RATE_FRACTION   # 12.500 B/s
+
 # --- autoajuste do envio por atraso (controle estilo Vegas/BBR, simplificado) ---
 # O congestion control do SCTP reage a PERDA, e perda só existe depois que a fila do
 # gargalo transbordou: por projeto ele ENCHE a fila. Em 2026-09-23 isso levou a
