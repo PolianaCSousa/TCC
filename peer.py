@@ -13,7 +13,7 @@ from config import (
     relax_ice_consent
 )
 from custom_types import Client, Server, Peer, Results
-from utils import try_parse_json, event_timeout, events_timeout, update_peers_list, safe_send
+from utils import try_parse_json, event_timeout, events_timeout, update_peers_list, safe_send, wait_round_outcome
 from storage import save_to_file
 from state import state
 from constants import (
@@ -26,7 +26,7 @@ from constants import (
     END_ITERATION, END_LAT_PACKAGES, END_PACKAGE_LOSS, ACK_PACKAGE_LOSS,
     THROUGHPUT_LABELS, BUFFER_AMOUNT_LIMIT, IPFS_TOPIC, CLIENT, SERVER, TEST_INTERVAL_SECONDS,
     HEARTBEAT_INTERVAL_SECONDS, HEARTBEAT_PACKAGE_SIZE,
-    ABORTED, RETRY_INTERVAL_SECONDS, ROUND_WATCHDOG_SECONDS
+    ABORTED, RETRY_INTERVAL_SECONDS, ROUND_WATCHDOG_SECONDS, PAIRING_TIMEOUT_SECONDS
 )
 from experiments.latency import(
     server_send_lat_ack,
@@ -447,7 +447,9 @@ def client_calculates_server_package_loss():
 async def server_receives_offer(data):
     state.role = SERVER
     state.results["role"] = state.role
-    logger.debug("offer recebida no server_peer")
+    # INFO de propósito: é a linha que diz se a oferta CHEGOU. Em 2026-09-26 ela era
+    # debug, e sem ela não deu pra saber se o pubsub falhou ou se o peer estava surdo
+    logger.info("offer recebida no server_peer")
     await _create_and_send_sdp_answer(data)
 
     @peer.on("datachannel")
@@ -477,7 +479,7 @@ async def _create_and_send_sdp_answer(data):
     await peer.setRemoteDescription(sdp)
 
     answer = await peer.createAnswer()
-    logger.debug("answer criada no server_peer")
+    logger.info("answer criada no server_peer")
     await peer.setLocalDescription(answer)
     await signaling.send("answer", data["from"], {"answer": {"type": peer.localDescription.type, "sdp": peer.localDescription.sdp}})
 
@@ -694,18 +696,18 @@ async def main():
     # loop daemon: roda testes em ciclo, com intervalo entre eles
     try:
         while True:
-            # a rodada acaba de três jeitos: terminou, a conexão caiu, ou travou de vez
-            outcome = await events_timeout({
-                "round_done": state.events["round_done"],
-                "connection_lost": state.events["connection_lost"],
-            }, ROUND_WATCHDOG_SECONDS)
+            # a rodada acaba de três jeitos: terminou, a conexão caiu, ou travou de vez.
+            # A espera tem dois prazos (ver utils.wait_round_outcome): curto enquanto
+            # não conectou, o watchdog inteiro depois que conectou.
+            outcome = await wait_round_outcome()
 
             if outcome == "round_done":
                 espera = TEST_INTERVAL_SECONDS
                 logger.info("Rodada concluída. Aguardando %ss até a próxima...", espera)
             elif outcome == "timeout" and not state.round_active:
-                # nunca conectou: não há medição nenhuma pra salvar, só tento parear de novo
-                logger.warning("Sem par há %ss. Recriando a conexão e repareando.", ROUND_WATCHDOG_SECONDS)
+                # nunca conectou: não há medição nenhuma pra salvar, só tento parear de novo.
+                # Em 2026-09-26 uma oferta ficou sem resposta e isto só disparava em 45min.
+                logger.warning("Sem par há %ss. Recriando a conexão e repareando.", PAIRING_TIMEOUT_SECONDS)
                 espera = 0
             else:
                 if outcome == "timeout":

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import time
 from constants import(
     FREE,
@@ -11,6 +12,8 @@ from constants import(
 from isp import(
     get_asn
 )
+
+logger = logging.getLogger(__name__)
 
 HEARTBEAT_INTERVAL = 2  # segundos entre cada announce
 PEER_TIMEOUT = HEARTBEAT_INTERVAL * 3 # se tiver passado 6 segundos e o par nao tiver feito anúncio, considero que ele saiu
@@ -69,10 +72,18 @@ class IpfsSignaling:
 
     async def _consume(self):
         async for message in self.kubo_client.pubsub_sub(self.topic):
-            data = json.loads(message["data"])
-            if data.get("from") == self.my_id:
-                continue  # ignora o proprio eco
-            await self._dispatch(data)
+            # Uma exceção aqui dentro sairia pelo `async for` e mataria esta task — em
+            # silêncio, porque self._tasks segura a referência e o asyncio nunca
+            # reporta. O peer ficaria surdo a todo pubsub até reiniciar. É um dos
+            # candidatos pra oferta sem resposta de 2026-09-26. Só o cancelamento
+            # (CancelledError, que não é Exception) atravessa.
+            try:
+                data = json.loads(message["data"])
+                if data.get("from") == self.my_id:
+                    continue  # ignora o proprio eco
+                await self._dispatch(data)
+            except Exception:
+                logger.exception("handler de sinalização estourou; ignorando a mensagem e seguindo")
 
 
     async def _dispatch(self, data):

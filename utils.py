@@ -3,6 +3,7 @@ import json
 import logging
 from aiortc.exceptions import InvalidStateError
 from state import state
+from constants import PAIRING_TIMEOUT_SECONDS, ROUND_WATCHDOG_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,30 @@ async def event_timeout(event, timeout):
         return False
     
     
+async def wait_round_outcome():
+    """Espera a rodada acabar, com um prazo por fase.
+
+    Duas situações moram nesta espera e pedem orçamentos que diferem em duas ordens
+    de grandeza: "ainda não conectou" (normal ~6s) e "rodada em andamento" (legítimo
+    até 20+ min). Um prazo só não atende às duas — foi o que deixou a rodada 5 de
+    2026-09-26 muda por 45min com uma oferta sem resposta.
+
+    Devolve o mesmo que events_timeout: "round_done", "connection_lost" ou "timeout".
+    Se a conexão subir dentro do prazo curto, a segunda espera parte do zero com o
+    watchdog inteiro — o total pode passar de ROUND_WATCHDOG por até PAIRING_TIMEOUT,
+    e isso é aceitável para uma rede de segurança.
+    """
+    eventos = {
+        "round_done": state.events["round_done"],
+        "connection_lost": state.events["connection_lost"],
+    }
+    outcome = await events_timeout(eventos, PAIRING_TIMEOUT_SECONDS)
+    if outcome != "timeout" or not state.round_active:
+        return outcome
+    # conectou dentro do prazo curto: agora vale o orçamento da rodada inteira
+    return await events_timeout(eventos, ROUND_WATCHDOG_SECONDS)
+
+
 async def events_timeout(events: dict[str, asyncio.Event], timeout: float | None = None):
     tasks = {}
     for name, event in events.items():

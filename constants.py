@@ -114,9 +114,17 @@ PACING_LOW_WATER = 0.7           # só volta a acelerar abaixo de 70% do alvo (h
 # --- recuperação de rodada ---
 RETRY_INTERVAL_SECONDS = 10      # espera curta antes de reparear quando a rodada foi abortada
 # rede de segurança pra rodada que trava SEM a conexão cair. Precisa ficar acima do
-# pior caso legítimo: os timeouts do 100MB sozinhos já somam ~1600s (800s de download
-# + 800s de test_complete), mais latência e perda de pacotes.
+# pior caso legítimo: o test_complete do 100MB sozinho espera até 800s, e o upload de
+# 100MB freado no teto do autoajuste (~2,8Mbps) leva ~5min — mais latência e perda de
+# pacotes. (Os 800s do download que este comentário citava saíram em 2026-09-25: o
+# receptor agora espera o sinal do remetente, sem cronômetro.)
 ROUND_WATCHDOG_SECONDS = 45 * 60
+
+# prazo da fase "conectando" (sinalização + ICE), cujo normal são ~6s. Antes ela caía
+# no ROUND_WATCHDOG: em 2026-09-26 uma oferta ficou sem resposta e o peer ficaria
+# 45min mudo. O watchdog continua valendo depois que a conexão sobe — é dimensionado
+# pra rodada legítima longa, e não serve pra esta fase (ver utils.wait_round_outcome).
+PAIRING_TIMEOUT_SECONDS = 60
 
 # IPFS topic name
 IPFS_TOPIC = "tcc-polics"
