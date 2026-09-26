@@ -371,7 +371,7 @@ async def calculate_client_upload(test_size):
 
 async def calculate_client_download(test_size):
     ## a task abaixo irá aguardar o evento throughput_finished
-    await calculate_throughput(state.role, state.client, state.events["throughput_finished"], test_size / MIN_THROUGHPUT_BytePerSec)
+    await calculate_throughput(state.role, state.client, state.events["throughput_finished"])
         
 
 async def client_latency(qtd_tests, type=LATENCY, sleep_loaded_interval=0, test_size=None):

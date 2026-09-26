@@ -171,16 +171,21 @@ def abort_upload(control_channel, test_size):
     safe_send(control_channel, SEND_ABORTED)
 
 
-async def calculate_throughput(role, PEER, throughput_finished, timeout=5):
+async def calculate_throughput(role, PEER, throughput_finished):
     total_bytes_esperada = PEER[
         "qtd_total_bytes"]  ## ex.: teria o BYTES_THROUGHPUT_10MB como o valor dessa chave tam_bytes_test
     label = THROUGHPUT_LABELS[total_bytes_esperada]  
-    timeout = total_bytes_esperada / MIN_THROUGHPUT_BytePerSec
     canal = state.server["channels"][CONTROL] if role == "server" else state.client["control_channel"]
-    # SEND_ABORTED corta a espera na hora: o par já avisou que desistiu do envio, então
-    # não existe END_THROUGHPUT pra esperar e os 800s seriam puro desperdício
+    # SEM timeout, de propósito. O remetente agora SEMPRE sinaliza o fim — END_THROUGHPUT
+    # se completou, SEND_ABORTED se desistiu (abort_upload) — então esperar um cronômetro
+    # em vez do sinal só pode dar errado: em 2026-09-25 o upload do cliente, freado pelo
+    # autoajuste, passou dos 800s; o servidor desistiu de esperar e começou o PRÓPRIO
+    # upload de 100MB em cima do que ainda estava chegando. Dois floods no mesmo caminho,
+    # STUN não atravessou em nenhuma direção, e o consent expirou dos dois lados 18min
+    # depois. Se o remetente sumir sem sinalizar, a conexão cai e cancel_round_tasks()
+    # cancela esta espera; se ficar viva e mudo, o ROUND_WATCHDOG encerra a rodada.
     response = await events_timeout({"recebido": throughput_finished,
-                                     "abortado": state.events["send_aborted"]}, timeout)
+                                     "abortado": state.events["send_aborted"]}, timeout=None)
     if response == "recebido":
         PEER["t1_throughput"] = time.time()
         tempo = PEER["t1_throughput"] - PEER["t0_throughput"]
@@ -197,10 +202,7 @@ async def calculate_throughput(role, PEER, throughput_finished, timeout=5):
         }))
     else:
         # meu download é none e o do outro par é none o upload
-        if response == "abortado":
-            logger.warning("%s: o par desistiu do envio. Download sem medida.", label)
-        else:
-            logger.warning("%s: download expirou após %ss sem receber END_THROUGHPUT do par.", label, timeout)
+        logger.warning("%s: o par desistiu do envio. Download sem medida.", label)
         state.results[f"{label}_download"] = None
         safe_send(canal, UPLOAD_ERROR)
 
