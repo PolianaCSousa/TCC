@@ -33,6 +33,10 @@ import time
 
 logger = logging.getLogger(__name__)
 
+# relógio do detector de travamento, no módulo pra o teste poder avançar o tempo
+# sem dormir (o _DrainWatch nasce dentro de send_throughput_data)
+_clock = time.monotonic
+
 
 def _ultimo_rtt_ms(PEER):
     """Última medida de ida-e-volta das sondas de latência sob carga, em ms.
@@ -123,6 +127,18 @@ async def send_throughput_data(throughput_channel, control_channel, PEER, test_s
                 return False
             await pacer.step(i)
         logger.info("%s: %s", label, pacer.resumo())
+        # Enfileirar os 71428 pacotes NÃO é entregá-los. Em 2026-09-26 21:18 o laço
+        # terminou, a cauda (~1MB) travou no SCTP e o END_THROUGHPUT — enfileirado
+        # atrás dela na fila única do aiortc — nunca saiu: servidor e cliente
+        # esperando um ao outro por 42min, até o watchdog. O detector de taxa não viu
+        # nada porque só roda dentro do laço. Esperar a fila zerar com o MESMO
+        # detector faz o sinal sair numa fila vazia e derruba a rodada em uma janela
+        # se a cauda travar. É o que torna verdadeiro o "o remetente sempre sinaliza"
+        # que justifica as esperas sem cronômetro do outro lado.
+        throughput_channel.bufferedAmountLowThreshold = 0
+        if not await _wait_buffer_drain(throughput_channel, 0, label, qtd_pacotes - 1,
+                                        qtd_pacotes, watch):
+            return False
         safe_send(control_channel, END_THROUGHPUT)
         return True
     except Exception as e:
@@ -148,14 +164,19 @@ class _DrainWatch:
     "há 5s", nunca 6 seguidos. Por isso a decisão de verdade é `taxa_abaixo_do_piso`:
     bytes que avançaram na janela, independente de quando o evento chega.
     """
-    def __init__(self, clock=time.monotonic):
+    def __init__(self, clock=None):
         self.stalls = 0
-        self.clock = clock          # injetável: o teste avança o tempo sem dormir
-        self.t_ref = None           # âncora da janela: fixada na 1ª chamada, não aqui
-        self.pacotes_ref = None
+        self.clock = clock or _clock    # injetável: o teste avança o tempo sem dormir
+        self.t_ref = None               # âncora da janela: fixada na 1ª chamada, não aqui
+        self.bytes_ref = None
 
-    def taxa_abaixo_do_piso(self, pacote):
+    def taxa_abaixo_do_piso(self, entregues):
         """(True, taxa) se na janela o envio ficou abaixo do piso; senão (False, taxa).
+
+        `entregues` são os bytes que SAÍRAM da fila da aplicação (enfileirados menos
+        bufferedAmount) — não os enfileirados. É o que faz o mesmo detector servir
+        nas duas fases: no laço (enfileirado cresce, fila cheia) e na cauda (nada mais
+        é enfileirado, só a fila baixando). Gotejo é "entregues" parado, em qualquer uma.
 
         Antes da janela fechar não opina — um teste de 100KB acaba em <1s e nunca
         chega a decidir. Uma janela boa reancora, então o gotejo é medido sempre sobre
@@ -163,15 +184,15 @@ class _DrainWatch:
         """
         agora = self.clock()
         if self.t_ref is None:
-            self.t_ref, self.pacotes_ref = agora, pacote
+            self.t_ref, self.bytes_ref = agora, entregues
             return False, None
         decorrido = agora - self.t_ref
         if decorrido < STALL_WINDOW_SECONDS:
             return False, None
-        taxa = (pacote - self.pacotes_ref) * BYTES_PER_PACKAGE / decorrido
+        taxa = (entregues - self.bytes_ref) / decorrido
         if taxa < STALL_FLOOR_BytePerSec:
             return True, taxa
-        self.t_ref, self.pacotes_ref = agora, pacote
+        self.t_ref, self.bytes_ref = agora, entregues
         return False, taxa
 
 
@@ -186,7 +207,8 @@ async def _wait_buffer_drain(throughput_channel, limite, label, pacote, qtd_paco
     while throughput_channel.bufferedAmount > limite:
         # TAXA, não "drenou ou não": 1 pacote a cada 10s dispara o evento e zera o
         # contador abaixo. Só a janela com piso pega um gotejo, seja qual for o ritmo.
-        travado, taxa = watch.taxa_abaixo_do_piso(pacote)
+        entregues = max(0, (pacote + 1) * BYTES_PER_PACKAGE - throughput_channel.bufferedAmount)
+        travado, taxa = watch.taxa_abaixo_do_piso(entregues)
         if travado:
             logger.error("%s: %.0f B/s nos últimos %ss, abaixo do piso de %.0f B/s. "
                          "SCTP travado: derrubando a rodada pra reparear.",

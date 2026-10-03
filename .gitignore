@@ -11,5 +11,10 @@ results.csv
 # Logs por peer (gerados localmente)
 logs/
 
+# Logs copiados da outra máquina pra análise. A extensão .py é só pra o editor
+# abrir sem reclamar — não é código, e não pode ir pra imagem (o Dockerfile copia
+# o repo inteiro).
+log_maquina_*.py
+
 # IDE
 .idea/
