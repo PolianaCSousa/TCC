@@ -5,8 +5,10 @@ venv/
 __pycache__/
 *.py[cod]
 
-# Resultados dos testes (gerados localmente)
-results.csv
+# Resultados dos testes (gerados localmente). O padrão cobre o results.csv ativo,
+# os históricos renomeados (history_results.csv) e as rotações que o storage.py cria
+# quando as colunas mudam (results_AAAAMMDD-HHMMSS.csv).
+*results*.csv
 
 # Logs por peer (gerados localmente)
 logs/

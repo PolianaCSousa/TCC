@@ -257,6 +257,30 @@ def abort_upload(control_channel, test_size):
     safe_send(control_channel, SEND_ABORTED)
 
 
+def _vazao_download_mbps(PEER, label):
+    """Vazão do download em Mbps, ou None quando não há intervalo pra medir.
+
+    O `-1` existe porque t0 é carimbado na chegada do PRIMEIRO pacote: o intervalo
+    cobre qtd_packages-1 pacotes. Com ZERO pacotes recebidos o numerador virava -1400
+    e a vazão saía NEGATIVA — `-22.8` e `-0.72 Mbps` no results.csv de 2026-10-04 — e
+    um número inválido atravessa qualquer média sem avisar, o que é pior que célula
+    vazia. Com 1 pacote dava 0.0, igualmente falso. E t0 ausente (nenhum pacote neste
+    teste, campo zerado no primeiro pacote do teste) levantava TypeError.
+    """
+    pacotes = PEER["qtd_packages"]
+    t0 = PEER["t0_throughput"]
+    # t1 é carimbado no handler do END_THROUGHPUT, na CHEGADA. Aqui pode ser muito
+    # depois: o cliente consome o evento só depois das 20 sondas de latência, que sob
+    # carga levam até 80s. Em 2026-09-26 isso deu 10MB_download de 0,48 Mbps para um
+    # download real de ~7 — o "tempo" incluía 40s de nada.
+    t1 = PEER["t1_throughput"] or time.time()
+    if pacotes < 2 or t0 is None or t1 <= t0:
+        logger.warning("%s: %s pacote(s) recebido(s) — sem intervalo pra medir. "
+                       "Download sem medida.", label, pacotes)
+        return None
+    return round((pacotes - 1) * BYTES_PER_PACKAGE / (t1 - t0) / 10 ** 6, 2) * 8
+
+
 async def _espera_download(PEER, throughput_finished, label):
     """Espera o fim do download vigiando a taxa de RECEPÇÃO. Espelho do detector de envio.
 
@@ -297,23 +321,19 @@ async def calculate_throughput(role, PEER, throughput_finished):
     # dele, os dois floods travaram o caminho e o consent expirou dos dois lados.
     response, taxa = await _espera_download(PEER, throughput_finished, label)
     if response == "recebido":
-        # t1 é carimbado no handler do END_THROUGHPUT, na CHEGADA. Aqui pode ser muito
-        # depois: o cliente consome este evento só depois de esperar as 20 sondas de
-        # latência, que sob carga levam até 80s. Em 2026-09-26 isso deu 10MB_download
-        # de 0,48 Mbps para um download real de ~7 — o "tempo" incluía 40s de nada.
-        t1 = PEER["t1_throughput"] or time.time()   # None só em caso degenerado
-        tempo = t1 - PEER["t0_throughput"]
-        vazao_em_bytes = ((PEER["qtd_packages"] - 1) * BYTES_PER_PACKAGE) / tempo  # 1400 é o tamanho do pacote
-        vazao_em_MB = round(vazao_em_bytes / 10 ** 6, 2)
-        vazao_em_Mbps = vazao_em_MB * 8
+        vazao_em_Mbps = _vazao_download_mbps(PEER, label)
         state.results[f"{label}_download"] = vazao_em_Mbps  # It's here when the tests finish
         if role != "server":
             logger.info("Resultados do cliente: %s", state.results)
-        safe_send(canal, json.dumps({
-            "msg": "upload",
-            "value": vazao_em_Mbps,
-            "test_size": total_bytes_esperada
-        }))
+        if vazao_em_Mbps is None:
+            # o par fica com upload=None em vez de receber um número inválido
+            safe_send(canal, UPLOAD_ERROR)
+        else:
+            safe_send(canal, json.dumps({
+                "msg": "upload",
+                "value": vazao_em_Mbps,
+                "test_size": total_bytes_esperada
+            }))
     elif response == "travado":
         # Só este caso derruba a rodada: nada chegou numa janela inteira, o remetente
         # está vivo mas a associação não entrega. Não dá pra seguir pro upload do
