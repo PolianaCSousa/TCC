@@ -257,21 +257,45 @@ def abort_upload(control_channel, test_size):
     safe_send(control_channel, SEND_ABORTED)
 
 
+async def _espera_download(PEER, throughput_finished, label):
+    """Espera o fim do download vigiando a taxa de RECEPÇÃO. Espelho do detector de envio.
+
+    Devolve ("recebido"|"abortado"|"travado", taxa_ou_None).
+
+    Esta espera era `timeout=None`, posta em 2026-09-25 com o raciocínio "o remetente
+    sempre sinaliza". Em 2026-10-03 o remetente sinalizou — e a entrega falhou: o
+    END_THROUGHPUT do servidor não chegou (associação SCTP travada nesse sentido) e o
+    cliente ficou 46min preso aqui, as duas máquinas vivas e heartbeatando. O erro foi
+    confundir "foi enviado" com "foi recebido".
+
+    Cronômetro fixo também não serve: o download legítimo do 100MB leva minutos e foi
+    justamente o que o antigo `test_size / MIN_THROUGHPUT` (800s) errava nos dois
+    sentidos. O que decide é o mesmo critério do lado de quem envia — bytes por janela:
+    chegando dados, espera o quanto precisar; parado, o remetente travou.
+    """
+    eventos = {"recebido": throughput_finished, "abortado": state.events["send_aborted"]}
+    recebidos_ref = PEER["qtd_packages"]
+    while True:
+        resposta = await events_timeout(eventos, STALL_WINDOW_SECONDS)
+        if resposta != "timeout":
+            return resposta, None
+        recebidos = PEER["qtd_packages"]
+        taxa = (recebidos - recebidos_ref) * BYTES_PER_PACKAGE / STALL_WINDOW_SECONDS
+        if taxa < STALL_FLOOR_BytePerSec:
+            return "travado", taxa
+        recebidos_ref = recebidos
+
+
 async def calculate_throughput(role, PEER, throughput_finished):
     total_bytes_esperada = PEER[
         "qtd_total_bytes"]  ## ex.: teria o BYTES_THROUGHPUT_10MB como o valor dessa chave tam_bytes_test
     label = THROUGHPUT_LABELS[total_bytes_esperada]  
     canal = state.server["channels"][CONTROL] if role == "server" else state.client["control_channel"]
-    # SEM timeout, de propósito. O remetente agora SEMPRE sinaliza o fim — END_THROUGHPUT
-    # se completou, SEND_ABORTED se desistiu (abort_upload) — então esperar um cronômetro
-    # em vez do sinal só pode dar errado: em 2026-09-25 o upload do cliente, freado pelo
-    # autoajuste, passou dos 800s; o servidor desistiu de esperar e começou o PRÓPRIO
-    # upload de 100MB em cima do que ainda estava chegando. Dois floods no mesmo caminho,
-    # STUN não atravessou em nenhuma direção, e o consent expirou dos dois lados 18min
-    # depois. Se o remetente sumir sem sinalizar, a conexão cai e cancel_round_tasks()
-    # cancela esta espera; se ficar viva e mudo, o ROUND_WATCHDOG encerra a rodada.
-    response = await events_timeout({"recebido": throughput_finished,
-                                     "abortado": state.events["send_aborted"]}, timeout=None)
+    # Sem cronômetro fixo: quem decide é a taxa de recepção (ver _espera_download).
+    # Nada de `test_size / MIN_THROUGHPUT` aqui — em 2026-09-25 esse prazo venceu
+    # enquanto o cliente ainda subia, o servidor começou o próprio upload em cima do
+    # dele, os dois floods travaram o caminho e o consent expirou dos dois lados.
+    response, taxa = await _espera_download(PEER, throughput_finished, label)
     if response == "recebido":
         # t1 é carimbado no handler do END_THROUGHPUT, na CHEGADA. Aqui pode ser muito
         # depois: o cliente consome este evento só depois de esperar as 20 sondas de
@@ -290,8 +314,19 @@ async def calculate_throughput(role, PEER, throughput_finished):
             "value": vazao_em_Mbps,
             "test_size": total_bytes_esperada
         }))
+    elif response == "travado":
+        # Só este caso derruba a rodada: nada chegou numa janela inteira, o remetente
+        # está vivo mas a associação não entrega. Não dá pra seguir pro upload do
+        # servidor num caminho morto — seria enfileirar dados que ninguém recebe.
+        logger.error("%s: recebi %.0f B/s nos últimos %ss, abaixo do piso de %.0f B/s. "
+                     "Remetente travado: derrubando a rodada pra reparear.",
+                     label, taxa, STALL_WINDOW_SECONDS, STALL_FLOOR_BytePerSec)
+        state.results[f"{label}_download"] = None
+        state.abort_round(f"remetente travado no download de {label}")
+        return
     else:
-        # meu download é none e o do outro par é none o upload
+        # o par desistiu de enviar (SEND_ABORTED): sem medida, mas a conexão está boa
+        # e o upload DELE ainda vem — a rodada continua
         logger.warning("%s: o par desistiu do envio. Download sem medida.", label)
         state.results[f"{label}_download"] = None
         safe_send(canal, UPLOAD_ERROR)
