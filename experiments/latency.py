@@ -9,14 +9,14 @@ logger = logging.getLogger(__name__)
 
 # region Calculate and send latency package
 async def server_send_lat_ack(latency_channel):
-    state.server[state.t0_latency_key()].append(time.time_ns())
+    state.server[state.t0_latency_key()].append(time.monotonic_ns())
     safe_send(latency_channel, LAT_ACK)
     #logger.info(">>> enviei LAT_ACK")
 # endregion
 
 
 async def client_send_lat_package(latency_channel):
-    state.client[state.t0_latency_key()].append(time.time_ns())
+    state.client[state.t0_latency_key()].append(time.monotonic_ns())
     safe_send(latency_channel, LAT)
     #logger.info(">>> enviei LAT")
 

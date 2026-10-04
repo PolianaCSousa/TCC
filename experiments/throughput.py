@@ -273,10 +273,21 @@ def _vazao_download_mbps(PEER, label):
     # depois: o cliente consome o evento só depois das 20 sondas de latência, que sob
     # carga levam até 80s. Em 2026-09-26 isso deu 10MB_download de 0,48 Mbps para um
     # download real de ~7 — o "tempo" incluía 40s de nada.
-    t1 = PEER["t1_throughput"] or time.time()
+    # monotônico aqui também, OBRIGATORIAMENTE: misturar com time.time() daria t0≈1e5
+    # contra t1≈1.8e9, ou seja "1,8 bilhão de segundos" de intervalo e vazão ~0,00 Mbps
+    # — erro silencioso, pior que o negativo que isto veio corrigir.
+    t1 = PEER["t1_throughput"] or time.monotonic()
     if pacotes < 2 or t0 is None or t1 <= t0:
-        logger.warning("%s: %s pacote(s) recebido(s) — sem intervalo pra medir. "
-                       "Download sem medida.", label, pacotes)
+        # Os VALORES no aviso, não só o veredito: em 2026-10-04 este aviso saiu com
+        # 7142 pacotes (o 10MB inteiro) e não houve como saber se foi t0=None ou
+        # t1<=t0 — eu chutei "salto de relógio" e estava errado. Com os números a
+        # próxima ocorrência se decide lendo a linha.
+        motivo = ("pacotes<2" if pacotes < 2 else
+                  "t0 ausente" if t0 is None else "t1<=t0")
+        logger.warning("%s: sem intervalo pra medir (%s). Download sem medida. "
+                       "[pacotes=%s t0=%s t1=%s delta=%s]",
+                       label, motivo, pacotes, t0, PEER["t1_throughput"],
+                       None if t0 is None else round(t1 - t0, 6))
         return None
     return round((pacotes - 1) * BYTES_PER_PACKAGE / (t1 - t0) / 10 ** 6, 2) * 8
 

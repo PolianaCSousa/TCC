@@ -236,7 +236,7 @@ def _register_client_control_channel_handlers():
             state.events["end_iteration"].set()
         elif message == END_THROUGHPUT:
             # t1 na CHEGADA: quem consome o evento pode chegar dezenas de segundos depois
-            state.client["t1_throughput"] = time.time()
+            state.client["t1_throughput"] = time.monotonic()
             state.events["throughput_finished"].set()
         elif message == UPLOAD_ERROR:
             state.events["upload_error"].set()
@@ -272,7 +272,7 @@ def _register_client_latency_channel_handlers():
         t0 = state.client[state.t0_latency_key()]
         t1 = state.client[state.t1_latency_key()]
         if len(t1) < len(t0):
-            t1.append(time.time_ns())
+            t1.append(time.monotonic_ns())
             state.events["lat_ack_received"].set()
       
 
@@ -285,7 +285,7 @@ def _register_client_throughput_channel_handlers():
     @state.client["throughput_channel"].on("message")
     def on_throughput_message(message):
         if state.client["qtd_packages"] == 0:
-            state.client["t0_throughput"] = time.time()  # retorna o tempo em segundos
+            state.client["t0_throughput"] = time.monotonic()  # duração, não hora: monotônico
             state.client["t1_throughput"] = None         # zera: o END_THROUGHPUT deste teste carimba
         state.client["qtd_packages"] = state.client["qtd_packages"] + 1
     
@@ -506,7 +506,7 @@ def _register_server_control_channel_handler():
             calculate_server_latency(LATENCY_TEST_SIZE, LOADED_LATENCY, state.server["qtd_total_bytes"])
         elif message == END_THROUGHPUT:
             # t1 na CHEGADA: quem consome o evento pode chegar dezenas de segundos depois
-            state.server["t1_throughput"] = time.time()
+            state.server["t1_throughput"] = time.monotonic()
             state.events["throughput_finished"].set()
         elif message == UPLOAD_RECEIVED:
             state.events["start_server_upload"].set()
@@ -544,7 +544,7 @@ def _register_server_throughput_channel_handler():
     @state.server["channels"][THROUGHPUT].on("message")
     def on_throughput_message(message):
         if state.server["qtd_packages"] == 0:
-            state.server["t0_throughput"] = time.time()  # retorna o tempo em segundos
+            state.server["t0_throughput"] = time.monotonic()  # duração, não hora: monotônico
             state.server["t1_throughput"] = None         # zera: o END_THROUGHPUT deste teste carimba
         state.server["qtd_packages"] = state.server["qtd_packages"] + 1
 
@@ -621,7 +621,7 @@ async def server_latency(message):
         latency_timeout = LOADED_LATENCY_TIMEOUT if state.latency_type == "loaded" else LATENCY_TIMEOUT
         await handle_server_latency_timeout(state.server["channels"][CONTROL], latency_timeout)
     else:  # se ACK for recebido com sucesso
-        state.server[state.t1_latency_key()].append(time.time_ns())
+        state.server[state.t1_latency_key()].append(time.monotonic_ns())
         state.events["ack_received"].set()
         logger.info("<<< recebi ACK")
         safe_send(state.server["channels"][CONTROL], END_ITERATION)
@@ -687,6 +687,10 @@ async def main():
     logger.setLevel(logging.INFO)
     logging.getLogger("experiments").setLevel(logging.INFO)
     logging.getLogger("utils").setLevel(logging.INFO)
+    # o config loga o afrouxamento do consent no startup. Sem isto a linha nunca
+    # aparecia (a raiz fica em WARNING), e eu já indiquei procurá-la no log como
+    # prova de que a imagem é nova — conselho inútil enquanto o logger era mudo.
+    logging.getLogger("config").setLevel(logging.INFO)
     # o aioice loga "Consent to send expired" em INFO. Sem isso, a conexão morre e o
     # único rastro é o "Connection state: closed", sem dizer o motivo.
     logging.getLogger("aioice").setLevel(logging.INFO)
