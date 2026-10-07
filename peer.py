@@ -626,7 +626,17 @@ async def server_latency(message):
         latency_timeout = LOADED_LATENCY_TIMEOUT if state.latency_type == "loaded" else LATENCY_TIMEOUT
         await handle_server_latency_timeout(state.server["channels"][CONTROL], latency_timeout)
     else:  # se ACK for recebido com sucesso
-        state.server[state.t1_latency_key()].append(time.monotonic_ns())
+        # mesma guarda do cliente (on_latency_message): anexar sem par desalinha os
+        # arrays, e o cálculo pareia por índice. Um ACK duplicado, ou um que chega
+        # depois do timeout já ter anexado None, deslocava todos os índices seguintes
+        # e produzia latência NEGATIVA — -115,83ms no CSV de 2026-10-07.
+        t0_srv = state.server[state.t0_latency_key()]
+        t1_srv = state.server[state.t1_latency_key()]
+        if len(t1_srv) < len(t0_srv):
+            t1_srv.append(time.monotonic_ns())
+        else:
+            logger.warning("ACK fora de par (t0=%s t1=%s): ignorando pra não desalinhar.",
+                           len(t0_srv), len(t1_srv))
         state.events["ack_received"].set()
         logger.info("<<< recebi ACK")
         safe_send(state.server["channels"][CONTROL], END_ITERATION)

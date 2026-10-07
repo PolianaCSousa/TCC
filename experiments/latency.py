@@ -44,6 +44,17 @@ def calc_latency(all_measures, result_key, test_size):
     latency_col = LATENCY if result_key == LATENCY else f"{THROUGHPUT_LABELS[test_size]}_loaded_latency"
     jitter_col = "jitter" if result_key == LATENCY else f"{THROUGHPUT_LABELS[test_size]}_loaded_jitter"
 
+    # Medida <= 0 é par desalinhado, não latência: com monotonic_ns() o tempo não
+    # volta atrás, então t1 - t0 negativo só sai quando o pareamento por índice
+    # (t1[i] - t0[i]) escorrega e casa um t1 antigo com um t0 mais novo. Em
+    # 2026-10-07 isso deu -115,83ms e -28,32ms em 10MB_loaded_latency. Descartar o
+    # par é o certo: uma média que inclui número impossível contamina em silêncio.
+    descartadas = [m for m in all_measures if m <= 0]
+    if descartadas:
+        logger.warning("%s: %s de %s medida(s) descartada(s) por par desalinhado "
+                       "(delta <= 0).", latency_col, len(descartadas), len(all_measures))
+        all_measures = [m for m in all_measures if m > 0]
+
     if len(all_measures) > 0:
         latency = round(mean(all_measures) / 10**6, 2) #10**6 #converte de ns para ms
         jitter = round(pstdev(all_measures) / 10**6, 2)
