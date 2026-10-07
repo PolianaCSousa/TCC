@@ -37,6 +37,18 @@ END_LOADED_PACKAGES = "cliente terminou o envio dos pacotes do teste de latênci
 END_PACKAGE_LOSS = "fim do envio dos pacotes para cálculo da perda de pacotes"
 ACK_PACKAGE_LOSS = "valor (%) da perda de pacotes recebido"
 PACKAGE_LOSS_TIMEOUT = 5
+
+# --- teste de perda de pacotes ---
+# O envio tem que ser ESPAÇADO. Em rajada (1000 sends num laço sem pausa, canal com
+# maxRetransmits=0) o que não cabe na janela do SCTP é abandonado, e a coluna mede o
+# próprio disparo em vez da rede: a ferramenta reportava 39,2% de mediana enquanto o
+# iperf3, no mesmo enlace e momento, media 0,029% a 6 Mbps e 0,000% a 12,6 Mbps (o
+# teto do TCP). 20 lotes de 50 com 0,1s entre eles = 500 pacotes/s ao longo de ~2s.
+# No fio dá ~30 kB/s (payload de 1 byte vira ~60 com SCTP+DTLS+UDP), ~24% do link
+# mais lento que a ferramenta assume — folga confortável em qualquer enlace.
+PACKAGE_LOSS_TOTAL = 1000
+PACKAGE_LOSS_BATCH = 50
+PACKAGE_LOSS_PAUSE = 0.1
 LATENCY_TEST_SIZE = 20
 
 # --- throughput test size ---

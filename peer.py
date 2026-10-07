@@ -13,7 +13,7 @@ from config import (
     relax_ice_consent
 )
 from custom_types import Client, Server, Peer, Results
-from utils import try_parse_json, event_timeout, events_timeout, update_peers_list, safe_send, wait_round_outcome
+from utils import try_parse_json, event_timeout, events_timeout, update_peers_list, safe_send, wait_round_outcome, send_paced
 from storage import save_to_file
 from state import state
 from constants import (
@@ -24,6 +24,7 @@ from constants import (
     MIN_THROUGHPUT_BytePerSec, BYTES_THROUGHPUT_10MB, START_THROUGHPUT,
     BYTES_THROUGHPUT_100KB, BYTES_THROUGHPUT_100MB, BYTES_THROUGHPUT_1MB,
     END_ITERATION, END_LAT_PACKAGES, END_PACKAGE_LOSS, ACK_PACKAGE_LOSS,
+    PACKAGE_LOSS_TOTAL, PACKAGE_LOSS_BATCH, PACKAGE_LOSS_PAUSE,
     THROUGHPUT_LABELS, BUFFER_AMOUNT_LIMIT, IPFS_TOPIC, CLIENT, SERVER, TEST_INTERVAL_SECONDS,
     HEARTBEAT_INTERVAL_SECONDS, HEARTBEAT_PACKAGE_SIZE,
     ABORTED, RETRY_INTERVAL_SECONDS, ROUND_WATCHDOG_SECONDS, PAIRING_TIMEOUT_SECONDS,
@@ -426,11 +427,13 @@ async def calculate_client_latency(qtd_tests, result_key=LATENCY, test_size=None
 async def client_package_loss():
     state.events["package_loss_received"].clear()
     state.events["end_throughput_experiments"].clear()
-    package = bytes(1)
-    for _ in range(1000):
-        if not safe_send(state.client["package_loss_channel"], package):
-            break
-    await asyncio.sleep(2)
+    # espaçado, não em rajada: ver utils.send_paced
+    enviados = await send_paced(state.client["package_loss_channel"], bytes(1),
+                                PACKAGE_LOSS_TOTAL, PACKAGE_LOSS_BATCH, PACKAGE_LOSS_PAUSE)
+    if enviados < PACKAGE_LOSS_TOTAL:
+        logger.warning("perda: só %s de %s pacotes saíram (canal fechou).",
+                       enviados, PACKAGE_LOSS_TOTAL)
+    await asyncio.sleep(2)   # deixa o que está em trânsito chegar antes de fechar a conta
     safe_send(state.client["control_channel"], END_PACKAGE_LOSS)
     event_ocurred = await event_timeout(state.events["package_loss_received"], PACKAGE_LOSS_TIMEOUT)
     if not event_ocurred:
@@ -582,11 +585,13 @@ async def server_calculates_client_package_loss():
 
 async def server_package_loss():
     state.events["package_loss_received"].clear()
-    package = bytes(1)
-    for _ in range(1000):
-        if not safe_send(state.server["channels"][PACKAGE_LOSS], package):
-            break
-    await asyncio.sleep(2)
+    # espaçado, não em rajada: ver utils.send_paced
+    enviados = await send_paced(state.server["channels"][PACKAGE_LOSS], bytes(1),
+                                PACKAGE_LOSS_TOTAL, PACKAGE_LOSS_BATCH, PACKAGE_LOSS_PAUSE)
+    if enviados < PACKAGE_LOSS_TOTAL:
+        logger.warning("perda: só %s de %s pacotes saíram (canal fechou).",
+                       enviados, PACKAGE_LOSS_TOTAL)
+    await asyncio.sleep(2)   # deixa o que está em trânsito chegar antes de fechar a conta
     safe_send(state.server["channels"][CONTROL], END_PACKAGE_LOSS)
     event_ocurred = await event_timeout(state.events["package_loss_received"], PACKAGE_LOSS_TIMEOUT)
     if not event_ocurred:

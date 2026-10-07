@@ -42,6 +42,30 @@ async def event_timeout(event, timeout):
         return False
     
     
+async def send_paced(channel, package, total, batch, pause):
+    """Envia `total` pacotes em lotes de `batch`, com `pause` entre eles.
+
+    Devolve quantos saíram de verdade — para se o canal fechar no meio.
+
+    Existe porque rajada e perda de rede são coisas diferentes. Mandar 1000 sends
+    num laço sem pausa, num canal `maxRetransmits=0`, estoura a janela do SCTP e o
+    excedente é ABANDONADO (pedimos zero retransmissão). A medição então reflete o
+    disparo, não o caminho: 39,2% de mediana na ferramenta contra 0,029% do iperf3
+    no mesmo enlace e instante (e 0,000% no teto do enlace).
+
+    Pausa por LOTE, não por pacote: asyncio.sleep tem granularidade de milissegundos,
+    então 1000 pausas de 2ms não dariam o espaçamento pedido.
+    """
+    enviados = 0
+    for i in range(total):
+        if not safe_send(channel, package):
+            break
+        enviados += 1
+        if (i + 1) % batch == 0:
+            await asyncio.sleep(pause)
+    return enviados
+
+
 async def wait_round_outcome():
     """Espera a rodada acabar, com um prazo por fase.
 
