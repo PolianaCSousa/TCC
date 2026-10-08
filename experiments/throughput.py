@@ -332,6 +332,15 @@ async def calculate_throughput(role, PEER, throughput_finished):
     # dele, os dois floods travaram o caminho e o consent expirou dos dois lados.
     response, taxa = await _espera_download(PEER, throughput_finished, label)
     if response == "recebido":
+        # Perda SOB CARGA, de graça: o receptor já tem as duas pontas. A coluna
+        # `package_loss` mede com o enlace ocioso (~300 kbps) e está certa — o iperf3
+        # mediu 0/782 nessa taxa em 2026-10-07, igual à ferramenta. Mas o teste de
+        # vazão opera perto da saturação, e lá o mesmo iperf mediu 6,5% a 18%. É este
+        # regime que explica o travamento do 100MB, e agora ele fica medido por tamanho.
+        esperados = PEER["qtd_total_bytes"] // BYTES_PER_PACKAGE
+        if esperados > 0:
+            perdidos = max(0, esperados - PEER["qtd_packages"])   # nunca negativa
+            state.results[f"{label}_package_loss"] = round(perdidos / esperados * 100, 2)
         vazao_em_Mbps = _vazao_download_mbps(PEER, label)
         state.results[f"{label}_download"] = vazao_em_Mbps  # It's here when the tests finish
         if role != "server":
@@ -353,6 +362,7 @@ async def calculate_throughput(role, PEER, throughput_finished):
                      "Remetente travado: derrubando a rodada pra reparear.",
                      label, taxa, STALL_WINDOW_SECONDS, STALL_FLOOR_BytePerSec)
         state.results[f"{label}_download"] = None
+        state.results[f"{label}_package_loss"] = None   # sem download, sem perda medida
         state.abort_round(f"remetente travado no download de {label}")
         return
     else:
@@ -360,6 +370,7 @@ async def calculate_throughput(role, PEER, throughput_finished):
         # e o upload DELE ainda vem — a rodada continua
         logger.warning("%s: o par desistiu do envio. Download sem medida.", label)
         state.results[f"{label}_download"] = None
+        state.results[f"{label}_package_loss"] = None   # sem download, sem perda medida
         safe_send(canal, UPLOAD_ERROR)
 
     # a subida do servidor NÃO depende da descida ter dado certo: são direções

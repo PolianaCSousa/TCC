@@ -58,21 +58,25 @@ class PeerState:
             "100KB_download": None,
             "100KB_loaded_latency": None,
             "100KB_loaded_jitter": None,
+            "100KB_package_loss": None,
 
             "1MB_upload": None,
             "1MB_download": None,
             "1MB_loaded_latency": None,
             "1MB_loaded_jitter": None,
+            "1MB_package_loss": None,
 
             "10MB_upload": None,
             "10MB_download": None,
             "10MB_loaded_latency": None,
             "10MB_loaded_jitter": None,
+            "10MB_package_loss": None,
 
             "100MB_upload": None,
             "100MB_download": None,
             "100MB_loaded_latency": None,
             "100MB_loaded_jitter": None,
+            "100MB_package_loss": None,
 
             "package_loss": None,
         }

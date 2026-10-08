@@ -23,7 +23,7 @@ def _column_with_unit(col: str) -> str:
         return f"{col} (ms)"
     if col == "jitter" or col.endswith("_loaded_jitter"):
         return f"{col} (ms)"
-    if col == "package_loss":
+    if col.endswith("package_loss"):   # a ociosa e as quatro sob carga
         return f"{col} (%)"
     return col
 
