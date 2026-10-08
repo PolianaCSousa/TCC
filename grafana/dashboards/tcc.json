@@ -1,0 +1,429 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "title": "TCC — Benchmark P2P WebRTC",
+  "uid": "tcc-p2p",
+  "tags": ["tcc", "webrtc"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "role",
+        "label": "Papel",
+        "type": "custom",
+        "query": "todos,client,server",
+        "current": { "text": "todos", "value": "todos" },
+        "options": [
+          { "text": "todos", "value": "todos", "selected": true },
+          { "text": "client", "value": "client", "selected": false },
+          { "text": "server", "value": "server", "selected": false }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Resultado",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Download",
+      "description": "Mediana do teste de 100MB — o maior volume, mais representativo de vazão sustentada.",
+      "datasource": { "type": "influxdb", "uid": "influxdb" },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 1 },
+      "fieldConfig": {
+        "defaults": { "unit": "Mbits", "decimals": 2, "color": { "mode": "fixed", "fixedColor": "green" } },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value", "graphMode": "none", "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "influxdb" },
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"tests_results\" and r._field == \"100MB_download\")\n  |> filter(fn: (r) => \"${role}\" == \"todos\" or r.role == \"${role}\")\n  |> group()\n  |> median()"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Upload",
+      "description": "Mediana do teste de 100MB.",
+      "datasource": { "type": "influxdb", "uid": "influxdb" },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 1 },
+      "fieldConfig": {
+        "defaults": { "unit": "Mbits", "decimals": 2, "color": { "mode": "fixed", "fixedColor": "blue" } },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value", "graphMode": "none", "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "influxdb" },
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"tests_results\" and r._field == \"100MB_upload\")\n  |> filter(fn: (r) => \"${role}\" == \"todos\" or r.role == \"${role}\")\n  |> group()\n  |> median()"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Latência",
+      "description": "Latência com o enlace ocioso (mediana).",
+      "datasource": { "type": "influxdb", "uid": "influxdb" },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 1 },
+      "fieldConfig": {
+        "defaults": { "unit": "ms", "decimals": 1, "color": { "mode": "fixed", "fixedColor": "purple" } },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value", "graphMode": "none", "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "influxdb" },
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"tests_results\" and r._field == \"latency\")\n  |> filter(fn: (r) => \"${role}\" == \"todos\" or r.role == \"${role}\")\n  |> group()\n  |> median()"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Jitter",
+      "description": "Variação da latência com o enlace ocioso (mediana).",
+      "datasource": { "type": "influxdb", "uid": "influxdb" },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 1 },
+      "fieldConfig": {
+        "defaults": { "unit": "ms", "decimals": 1, "color": { "mode": "fixed", "fixedColor": "purple" } },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value", "graphMode": "none", "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "influxdb" },
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"tests_results\" and r._field == \"jitter\")\n  |> filter(fn: (r) => \"${role}\" == \"todos\" or r.role == \"${role}\")\n  |> group()\n  |> median()"
+        }
+      ]
+    },
+
+    {
+      "type": "row",
+      "title": "Qualidade sob carga",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 7 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Latência sob carga",
+      "description": "Latência durante a transferência de 100MB. É o que o usuário sente quando algo está baixando.",
+      "datasource": { "type": "influxdb", "uid": "influxdb" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms", "decimals": 1,
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 100 },
+            { "color": "orange", "value": 300 },
+            { "color": "red", "value": 500 }
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value", "graphMode": "none", "textMode": "auto", "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "influxdb" },
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"tests_results\" and r._field == \"100MB_loaded_latency\")\n  |> filter(fn: (r) => \"${role}\" == \"todos\" or r.role == \"${role}\")\n  |> group()\n  |> median()"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Aumento da latência (×)",
+      "description": "Quantas vezes a latência cresce sob carga de 100MB em relação ao enlace ocioso. É a medida do bufferbloat.",
+      "datasource": { "type": "influxdb", "uid": "influxdb" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none", "decimals": 1,
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 3 },
+            { "color": "orange", "value": 10 },
+            { "color": "red", "value": 20 }
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value", "graphMode": "none", "textMode": "auto", "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "influxdb" },
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"tests_results\")\n  |> filter(fn: (r) => r._field == \"latency\" or r._field == \"100MB_loaded_latency\")\n  |> filter(fn: (r) => \"${role}\" == \"todos\" or r.role == \"${role}\")\n  |> group(columns: [\"_field\"])\n  |> median()\n  |> group()\n  |> map(fn: (r) => ({ r with k: \"x\" }))\n  |> pivot(rowKey: [\"k\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({ _value: r[\"100MB_loaded_latency\"] / r[\"latency\"] }))"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Perda de pacotes",
+      "description": "Com o enlace ocioso, envio espaçado (~300 kbps). Validada contra o iperf3 na mesma taxa.",
+      "datasource": { "type": "influxdb", "uid": "influxdb" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "decimals": 2,
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 1 },
+            { "color": "red", "value": 5 }
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value", "graphMode": "none", "textMode": "auto", "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "influxdb" },
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"tests_results\" and r._field == \"package_loss\")\n  |> filter(fn: (r) => \"${role}\" == \"todos\" or r.role == \"${role}\")\n  |> group()\n  |> median()"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Rodadas concluídas",
+      "description": "Percentual de rodadas com status=complete. As abortadas têm dado parcial — em geral falta o 100MB.",
+      "datasource": { "type": "influxdb", "uid": "influxdb" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "decimals": 1,
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red", "value": null },
+            { "color": "orange", "value": 50 },
+            { "color": "green", "value": 80 }
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value", "graphMode": "none", "textMode": "auto", "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "influxdb" },
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"tests_results\" and r._field == \"100KB_download\")\n  |> filter(fn: (r) => \"${role}\" == \"todos\" or r.role == \"${role}\")\n  |> map(fn: (r) => ({ r with _value: if r.status == \"complete\" then 1.0 else 0.0 }))\n  |> group()\n  |> mean()\n  |> map(fn: (r) => ({ r with _value: r._value * 100.0 }))"
+        }
+      ]
+    },
+
+    {
+      "type": "row",
+      "title": "Medições por tamanho de teste",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 13 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "Medições (mediana de cada métrica, por tamanho)",
+      "description": "Uma linha por tamanho de teste. A latência e a perda crescem com o volume transferido — é a assinatura do bufferbloat.",
+      "datasource": { "type": "influxdb", "uid": "influxdb" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "center", "cellOptions": { "type": "auto" } } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "ordem" },
+            "properties": [{ "id": "custom.hidden", "value": true }] },
+          { "matcher": { "id": "byName", "options": "tamanho" },
+            "properties": [
+              { "id": "displayName", "value": "Teste" },
+              { "id": "custom.width", "value": 120 }
+            ] },
+          { "matcher": { "id": "byName", "options": "download" },
+            "properties": [
+              { "id": "displayName", "value": "Download" },
+              { "id": "unit", "value": "Mbits" },
+              { "id": "decimals", "value": 2 },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }
+            ] },
+          { "matcher": { "id": "byName", "options": "upload" },
+            "properties": [
+              { "id": "displayName", "value": "Upload" },
+              { "id": "unit", "value": "Mbits" },
+              { "id": "decimals", "value": 2 },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } }
+            ] },
+          { "matcher": { "id": "byName", "options": "loaded_latency" },
+            "properties": [
+              { "id": "displayName", "value": "Latência sob carga" },
+              { "id": "unit", "value": "ms" },
+              { "id": "decimals", "value": 1 },
+              { "id": "custom.cellOptions", "value": { "type": "gauge", "mode": "gradient" } },
+              { "id": "max", "value": 1000 },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 100 },
+                  { "color": "orange", "value": 300 },
+                  { "color": "red", "value": 500 }
+              ]}}
+            ] },
+          { "matcher": { "id": "byName", "options": "loaded_jitter" },
+            "properties": [
+              { "id": "displayName", "value": "Jitter sob carga" },
+              { "id": "unit", "value": "ms" },
+              { "id": "decimals", "value": 1 }
+            ] },
+          { "matcher": { "id": "byName", "options": "package_loss" },
+            "properties": [
+              { "id": "displayName", "value": "Perda" },
+              { "id": "unit", "value": "percent" },
+              { "id": "decimals", "value": 2 },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 0.5 },
+                  { "color": "red", "value": 2 }
+              ]}}
+            ] }
+        ]
+      },
+      "options": { "showHeader": true, "footer": { "show": false } },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "datasource": { "type": "influxdb", "uid": "influxdb" },
+          "query": "import \"regexp\"\nfrom(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"tests_results\")\n  |> filter(fn: (r) => r._field =~ /^(100KB|1MB|10MB|100MB)_/)\n  |> filter(fn: (r) => \"${role}\" == \"todos\" or r.role == \"${role}\")\n  |> group(columns: [\"_field\"])\n  |> median()\n  |> group()\n  |> map(fn: (r) => ({\n      ordem: if r._field =~ /^100KB_/ then 1 else if r._field =~ /^1MB_/ then 2 else if r._field =~ /^10MB_/ then 3 else 4,\n      tamanho: regexp.findString(r: /^[0-9]+[KM]B/, v: r._field),\n      metrica: regexp.replaceAllString(r: /^[0-9]+[KM]B_/, v: r._field, t: \"\"),\n      _value: r._value}))\n  |> pivot(rowKey: [\"ordem\", \"tamanho\"], columnKey: [\"metrica\"], valueColumn: \"_value\")\n  |> sort(columns: [\"ordem\"])"
+        }
+      ]
+    },
+
+    {
+      "type": "row",
+      "title": "Evolução no tempo",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Vazão por rodada",
+      "description": "Download sólido, upload tracejado. Teto do enlace medido com iperf3 em 2026-10-07: 7,34 Mbps.",
+      "datasource": { "type": "influxdb", "uid": "influxdb" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 23 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Mbits", "decimals": 2,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "showPoints": "always", "pointSize": 6, "spanNulls": true, "fillOpacity": 0 }
+        },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": ".*upload.*" },
+            "properties": [{ "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [8, 4] } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "influxdb" },
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"tests_results\")\n  |> filter(fn: (r) => r._field =~ /_(download|upload)$/)\n  |> filter(fn: (r) => \"${role}\" == \"todos\" or r.role == \"${role}\")\n  |> keep(columns: [\"_time\", \"_value\", \"_field\"])\n  |> group(columns: [\"_field\"])"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Latência sob carga por rodada",
+      "description": "A linha azul grossa é a latência base. A distância até as outras é o bufferbloat.",
+      "datasource": { "type": "influxdb", "uid": "influxdb" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 23 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms", "decimals": 1,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "showPoints": "always", "pointSize": 6, "spanNulls": true, "fillOpacity": 0 }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "latency" },
+            "properties": [
+              { "id": "custom.lineWidth", "value": 3 },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } },
+              { "id": "displayName", "value": "base (sem carga)" }
+            ] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "influxdb" },
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"tests_results\")\n  |> filter(fn: (r) => r._field =~ /_loaded_latency$/ or r._field == \"latency\")\n  |> filter(fn: (r) => \"${role}\" == \"todos\" or r.role == \"${role}\")\n  |> keep(columns: [\"_time\", \"_value\", \"_field\"])\n  |> group(columns: [\"_field\"])"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Perda de pacotes por rodada",
+      "description": "Perda sob carga em cada tamanho, mais a perda com o enlace ocioso (package_loss).",
+      "datasource": { "type": "influxdb", "uid": "influxdb" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "decimals": 2,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "showPoints": "always", "pointSize": 6, "spanNulls": true, "fillOpacity": 0 }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "package_loss" },
+            "properties": [
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } },
+              { "id": "displayName", "value": "ocioso (~300 kbps)" }
+            ] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "influxdb" },
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"tests_results\")\n  |> filter(fn: (r) => r._field =~ /package_loss$/)\n  |> filter(fn: (r) => \"${role}\" == \"todos\" or r.role == \"${role}\")\n  |> keep(columns: [\"_time\", \"_value\", \"_field\"])\n  |> group(columns: [\"_field\"])"
+        }
+      ]
+    }
+  ]
+}
