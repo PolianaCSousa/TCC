@@ -52,6 +52,7 @@ services:
     restart: unless-stopped
     depends_on:
       influxdb: { condition: service_healthy }
+      dashboard-downloader: { condition: service_completed_successfully }
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?defina no .env}
       GF_USERS_ALLOW_SIGN_UP: "false"
@@ -65,8 +66,21 @@ services:
     ports:
       - "3000:3000"
 
+  dashboard-downloader:
+    image: curlimages/curl:latest
+    user: "0:0"
+    entrypoint: ["sh", "-c"]
+    command:
+      - >-
+        curl -fsSL https://codeload.github.com/PolianaCSousa/TCC/tar.gz/refs/heads/grafana
+        | tar -xzf - -C /grafana --strip-components=2
+        TCC-grafana/grafana/provisioning
+        TCC-grafana/grafana/dashboards
+    volumes:
+      - ./grafana:/grafana
+
   peer:
-    image: polics/tcc-polics:fixes-test
+    image: polics/tcc-polics
     #build:  
     #  context: https://github.com/PolianaCSousa/TCC.git#docker
     #  dockerfile: Dockerfile
