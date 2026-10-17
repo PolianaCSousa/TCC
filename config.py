@@ -6,7 +6,7 @@ import requests
 import logging
 import os
 
-from constants import BYTES_THROUGHPUT_100MB, MIN_THROUGHPUT_BytePerSec
+from constants import BYTES_THROUGHPUT_75MB, MIN_THROUGHPUT_BytePerSec
 
 load_dotenv()
 INFLUXDB_TOKEN = os.getenv("INFLUXDB_TOKEN")
@@ -48,9 +48,9 @@ def relax_ice_consent():
     teste e no ROUND_WATCHDOG_SECONDS. Por isso a janela fica deliberadamente
     abaixo do watchdog — o ICE ainda percebe a queda, só que depois do experimento.
     """
-    # pior caso que a própria ferramenta assume: 100MB no link mais lento que ela
+    # pior caso que a própria ferramenta assume: 75MB no link mais lento que ela
     # espera atender. É o mesmo número que alimenta os timeouts em peer.py.
-    janela = (BYTES_THROUGHPUT_100MB / MIN_THROUGHPUT_BytePerSec) * _CONSENT_MARGEM
+    janela = (BYTES_THROUGHPUT_75MB / MIN_THROUGHPUT_BytePerSec) * _CONSENT_MARGEM
     aioice_ice.CONSENT_FAILURES = math.ceil(janela / aioice_ice.CONSENT_INTERVAL)
     logger.info(
         "consent freshness do ICE afrouxado: %s falhas x %ss = %ss de tolerância",

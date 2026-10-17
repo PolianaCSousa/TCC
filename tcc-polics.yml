@@ -81,7 +81,8 @@ services:
 
   peer:
     image: polics/tcc-polics
-    #build:  
+    pull_policy: always
+    #build:
     #  context: https://github.com/PolianaCSousa/TCC.git#docker
     #  dockerfile: Dockerfile
     #  args:
