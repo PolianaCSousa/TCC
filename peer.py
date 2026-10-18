@@ -22,7 +22,7 @@ from constants import (
     UPLOAD_RECEIVED, UPLOAD_ERROR, SEND_ABORTED, LAT_ACK_ERROR, PACKAGE_LOSS_TIMEOUT,
     LAT, LATENCY_TIMEOUT, LOADED_LATENCY_TIMEOUT,
     MIN_THROUGHPUT_BytePerSec, BYTES_THROUGHPUT_10MB, START_THROUGHPUT,
-    BYTES_THROUGHPUT_100KB, BYTES_THROUGHPUT_70MB, BYTES_THROUGHPUT_1MB,
+    BYTES_THROUGHPUT_100KB, BYTES_THROUGHPUT_50MB, BYTES_THROUGHPUT_1MB,
     END_ITERATION, END_LAT_PACKAGES, END_PACKAGE_LOSS, ACK_PACKAGE_LOSS,
     PACKAGE_LOSS_TOTAL, PACKAGE_LOSS_BATCH, PACKAGE_LOSS_PAUSE,
     THROUGHPUT_LABELS, BUFFER_AMOUNT_LIMIT, IPFS_TOPIC, CLIENT, SERVER, TEST_INTERVAL_SECONDS,
@@ -337,7 +337,7 @@ async def _client_throughput_phase():
     await calculate_client_throughput(BYTES_THROUGHPUT_100KB)
     await calculate_client_throughput(BYTES_THROUGHPUT_1MB)
     await calculate_client_throughput(BYTES_THROUGHPUT_10MB)
-    await calculate_client_throughput(BYTES_THROUGHPUT_70MB)
+    await calculate_client_throughput(BYTES_THROUGHPUT_50MB)
     state.events["end_throughput_experiments"].set()
 
 
@@ -606,7 +606,7 @@ async def _calculate_server_download():
     await _calculate_download(BYTES_THROUGHPUT_100KB)
     await _calculate_download(BYTES_THROUGHPUT_1MB)
     await _calculate_download(BYTES_THROUGHPUT_10MB)
-    await _calculate_download(BYTES_THROUGHPUT_70MB)
+    await _calculate_download(BYTES_THROUGHPUT_50MB)
     logger.info("---------------- FIM DO EXPERIMENTO ----------------")
 
 

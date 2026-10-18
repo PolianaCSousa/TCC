@@ -72,11 +72,11 @@ class PeerState:
             "10MB_loaded_jitter": None,
             "10MB_package_loss": None,
 
-            "70MB_upload": None,
-            "70MB_download": None,
-            "70MB_loaded_latency": None,
-            "70MB_loaded_jitter": None,
-            "70MB_package_loss": None,
+            "50MB_upload": None,
+            "50MB_download": None,
+            "50MB_loaded_latency": None,
+            "50MB_loaded_jitter": None,
+            "50MB_package_loss": None,
 
             "package_loss": None,
         }

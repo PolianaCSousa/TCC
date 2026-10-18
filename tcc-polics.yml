@@ -31,11 +31,11 @@ services:
     environment:
       # só o entrypoint da imagem lê estas — e só na primeira subida, com o volume vazio
       DOCKER_INFLUXDB_INIT_MODE: setup
-      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUXDB_USERNAME:?defina no .env}
-      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_PASSWORD:?defina no .env}   # mínimo 8 caracteres
-      DOCKER_INFLUXDB_INIT_ORG: ${INFLUXDB_ORG:?defina no .env}
-      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUXDB_BUCKET:?defina no .env}
-      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN:?defina no .env}
+      DOCKER_INFLUXDB_INIT_USERNAME: "poliana"
+      DOCKER_INFLUXDB_INIT_PASSWORD: "speedtest123"   # mínimo 8 caracteres
+      DOCKER_INFLUXDB_INIT_ORG: "tcc"
+      DOCKER_INFLUXDB_INIT_BUCKET: "internet_metrics"
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: "1bRD2iO0ODRNE5dfxHPqnaIoMU_bUx2wupydrs6f4_dZBzXS-lfjwDKT6eobG-8R6KnzbY0LHS7J3bGUDZXH5g=="
       # URL e MEASUREMENT não existem no servidor: são do cliente, ficam no serviço peer
     volumes:
       - influx-data:/var/lib/influxdb2 # eu preciso definir pastas no pc pra salvar os dados, pois uma vez que o container morre, os dados se perdem (antes dos : sao as pastas da minha máquina, e depois dos : são as pastas do container) - verificar quais pastas do influx eu preciso fazer backup
@@ -54,11 +54,11 @@ services:
       influxdb: { condition: service_healthy }
       dashboard-downloader: { condition: service_completed_successfully }
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?defina no .env}
+      GF_SECURITY_ADMIN_PASSWORD: "123456"
       GF_USERS_ALLOW_SIGN_UP: "false"
-      INFLUXDB_ORG: ${INFLUXDB_ORG}
-      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET}
-      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN}
+      INFLUXDB_ORG: "tcc"
+      INFLUXDB_BUCKET: "internet_metrics"
+      INFLUXDB_TOKEN: "1bRD2iO0ODRNE5dfxHPqnaIoMU_bUx2wupydrs6f4_dZBzXS-lfjwDKT6eobG-8R6KnzbY0LHS7J3bGUDZXH5g=="
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
@@ -103,11 +103,11 @@ services:
     environment:
       #KUBO_API: http://ipfs:5001    # nome do serviço: o Compose resolve como DNS
       INFLUXDB_URL: http://influxdb:8086
-      INFLUXDB_ORG: ${INFLUXDB_ORG}
-      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET}
-      INFLUXDB_MEASUREMENT: ${INFLUXDB_MEASUREMENT}
-      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN}
-      TURN_API_KEY: ${TURN_API_KEY}
+      INFLUXDB_ORG: "tcc"
+      INFLUXDB_BUCKET: "internet_metrics"
+      INFLUXDB_MEASUREMENT: "tests_results"
+      INFLUXDB_TOKEN: "1bRD2iO0ODRNE5dfxHPqnaIoMU_bUx2wupydrs6f4_dZBzXS-lfjwDKT6eobG-8R6KnzbY0LHS7J3bGUDZXH5g=="
+      TURN_API_KEY: "31039a9fee7240cf0c64e10bbf48827c436e"
       # inertes por enquanto: IPFS_TOPIC e TEST_INTERVAL_SECONDS estão fixos em
       # constants.py e PEER_NAME não é lido por ninguém. Descomentar quando o
       # código passar a ler do ambiente.
