@@ -232,7 +232,7 @@ async def _wait_buffer_drain(throughput_channel, limite, label, pacote, qtd_paco
             # saída pra todos os datachannels, e o SEND_ABORTED entraria atrás dos
             # ~1MB de vazão travada — nunca sairia. Foi o deadlock de 2026-09-26:
             # cliente e servidor esperando um ao outro por 45min. Um SCTP que não
-            # escoa 1400 bytes em 30s é uma conexão morta; a saída é reparear com
+            # escoa um pacote em 30s é uma conexão morta; a saída é reparear com
             # uma associação nova, e é isso que connection_lost faz o main() fazer.
             state.abort_round(f"SCTP travado no envio de {label}")
             return False

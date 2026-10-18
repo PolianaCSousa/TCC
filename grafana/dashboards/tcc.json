@@ -36,7 +36,7 @@
     {
       "type": "stat",
       "title": "Download",
-      "description": "Mediana do teste de 75MB — o maior volume, mais representativo de vazão sustentada.",
+      "description": "Mediana do teste de 70MB — o maior volume, mais representativo de vazão sustentada.",
       "datasource": { "type": "influxdb", "uid": "influxdb" },
       "gridPos": { "h": 6, "w": 6, "x": 0, "y": 1 },
       "fieldConfig": {
@@ -52,14 +52,14 @@
         {
           "refId": "A",
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"tests_results\" and r._field == \"75MB_download\")\n  |> filter(fn: (r) => \"${role}\" == \"todos\" or r.role == \"${role}\")\n  |> group()\n  |> median()"
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"tests_results\" and r._field == \"70MB_download\")\n  |> filter(fn: (r) => \"${role}\" == \"todos\" or r.role == \"${role}\")\n  |> group()\n  |> median()"
         }
       ]
     },
     {
       "type": "stat",
       "title": "Upload",
-      "description": "Mediana do teste de 75MB.",
+      "description": "Mediana do teste de 70MB.",
       "datasource": { "type": "influxdb", "uid": "influxdb" },
       "gridPos": { "h": 6, "w": 6, "x": 6, "y": 1 },
       "fieldConfig": {
@@ -75,7 +75,7 @@
         {
           "refId": "A",
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"tests_results\" and r._field == \"75MB_upload\")\n  |> filter(fn: (r) => \"${role}\" == \"todos\" or r.role == \"${role}\")\n  |> group()\n  |> median()"
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"tests_results\" and r._field == \"70MB_upload\")\n  |> filter(fn: (r) => \"${role}\" == \"todos\" or r.role == \"${role}\")\n  |> group()\n  |> median()"
         }
       ]
     },
@@ -136,7 +136,7 @@
     {
       "type": "stat",
       "title": "Latência sob carga",
-      "description": "Latência durante a transferência de 75MB. É o que o usuário sente quando algo está baixando.",
+      "description": "Latência durante a transferência de 70MB. É o que o usuário sente quando algo está baixando.",
       "datasource": { "type": "influxdb", "uid": "influxdb" },
       "gridPos": { "h": 5, "w": 6, "x": 0, "y": 8 },
       "fieldConfig": {
@@ -159,14 +159,14 @@
         {
           "refId": "A",
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"tests_results\" and r._field == \"75MB_loaded_latency\")\n  |> filter(fn: (r) => \"${role}\" == \"todos\" or r.role == \"${role}\")\n  |> group()\n  |> median()"
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"tests_results\" and r._field == \"70MB_loaded_latency\")\n  |> filter(fn: (r) => \"${role}\" == \"todos\" or r.role == \"${role}\")\n  |> group()\n  |> median()"
         }
       ]
     },
     {
       "type": "stat",
       "title": "Aumento da latência (×)",
-      "description": "Quantas vezes a latência cresce sob carga de 75MB em relação ao enlace ocioso. É a medida do bufferbloat.",
+      "description": "Quantas vezes a latência cresce sob carga de 70MB em relação ao enlace ocioso. É a medida do bufferbloat.",
       "datasource": { "type": "influxdb", "uid": "influxdb" },
       "gridPos": { "h": 5, "w": 6, "x": 6, "y": 8 },
       "fieldConfig": {
@@ -189,7 +189,7 @@
         {
           "refId": "A",
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"tests_results\")\n  |> filter(fn: (r) => r._field == \"latency\" or r._field == \"75MB_loaded_latency\")\n  |> filter(fn: (r) => \"${role}\" == \"todos\" or r.role == \"${role}\")\n  |> group(columns: [\"_field\"])\n  |> median()\n  |> group()\n  |> map(fn: (r) => ({ r with k: \"x\" }))\n  |> pivot(rowKey: [\"k\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({ _value: r[\"75MB_loaded_latency\"] / r[\"latency\"] }))"
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"tests_results\")\n  |> filter(fn: (r) => r._field == \"latency\" or r._field == \"70MB_loaded_latency\")\n  |> filter(fn: (r) => \"${role}\" == \"todos\" or r.role == \"${role}\")\n  |> group(columns: [\"_field\"])\n  |> median()\n  |> group()\n  |> map(fn: (r) => ({ r with k: \"x\" }))\n  |> pivot(rowKey: [\"k\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({ _value: r[\"70MB_loaded_latency\"] / r[\"latency\"] }))"
         }
       ]
     },
@@ -225,7 +225,7 @@
     {
       "type": "stat",
       "title": "Rodadas concluídas",
-      "description": "Percentual de rodadas com status=complete. As abortadas têm dado parcial — em geral falta o 75MB.",
+      "description": "Percentual de rodadas com status=complete. As abortadas têm dado parcial — em geral falta o 70MB.",
       "datasource": { "type": "influxdb", "uid": "influxdb" },
       "gridPos": { "h": 5, "w": 6, "x": 18, "y": 8 },
       "fieldConfig": {
@@ -331,7 +331,7 @@
           "refId": "A",
           "format": "table",
           "datasource": { "type": "influxdb", "uid": "influxdb" },
-          "query": "import \"regexp\"\nfrom(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"tests_results\")\n  |> filter(fn: (r) => r._field =~ /^(100KB|1MB|10MB|75MB)_/)\n  |> filter(fn: (r) => \"${role}\" == \"todos\" or r.role == \"${role}\")\n  |> group(columns: [\"_field\"])\n  |> median()\n  |> group()\n  |> map(fn: (r) => ({\n      ordem: if r._field =~ /^100KB_/ then 1 else if r._field =~ /^1MB_/ then 2 else if r._field =~ /^10MB_/ then 3 else 4,\n      tamanho: regexp.findString(r: /^[0-9]+[KM]B/, v: r._field),\n      metrica: regexp.replaceAllString(r: /^[0-9]+[KM]B_/, v: r._field, t: \"\"),\n      _value: r._value}))\n  |> pivot(rowKey: [\"ordem\", \"tamanho\"], columnKey: [\"metrica\"], valueColumn: \"_value\")\n  |> sort(columns: [\"ordem\"])"
+          "query": "import \"regexp\"\nfrom(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"tests_results\")\n  |> filter(fn: (r) => r._field =~ /^(100KB|1MB|10MB|70MB)_/)\n  |> filter(fn: (r) => \"${role}\" == \"todos\" or r.role == \"${role}\")\n  |> group(columns: [\"_field\"])\n  |> median()\n  |> group()\n  |> map(fn: (r) => ({\n      ordem: if r._field =~ /^100KB_/ then 1 else if r._field =~ /^1MB_/ then 2 else if r._field =~ /^10MB_/ then 3 else 4,\n      tamanho: regexp.findString(r: /^[0-9]+[KM]B/, v: r._field),\n      metrica: regexp.replaceAllString(r: /^[0-9]+[KM]B_/, v: r._field, t: \"\"),\n      _value: r._value}))\n  |> pivot(rowKey: [\"ordem\", \"tamanho\"], columnKey: [\"metrica\"], valueColumn: \"_value\")\n  |> sort(columns: [\"ordem\"])"
         }
       ]
     },

@@ -112,12 +112,17 @@ class IpfsSignaling:
 
             for id in disconnected:
                 del self.peers[id]
+                logger.info("par %s sumiu do tópico (sem announce há %ss)", id, PEER_TIMEOUT)
 
 
     # --- Matchmaking ---------------------------------------------------------
 
     async def _on_announce(self, data):
         other_peer_id = data["from"]
+        # só a primeira vez (ou a volta depois de sumir): o announce chega a cada 2s
+        if other_peer_id not in self.peers:
+            logger.info("par %s visto no tópico (status=%s, asn=%s)",
+                        other_peer_id, data.get("status"), data.get("asn"))
         self.peers[other_peer_id] = {
             "status": data.get("status"),
             "asn": data.get("asn"),
@@ -131,6 +136,7 @@ class IpfsSignaling:
         if self.my_id < partner:
             self.status = PAIRING
             self.partner = partner
+            logger.info("pedindo pareamento a %s", partner)
             await self.send("pair_request", partner, {})
             asyncio.create_task(self._pair_timeout(partner))
 
@@ -200,6 +206,7 @@ class IpfsSignaling:
         await asyncio.sleep(PAIR_TIMEOUT)
         # se ainda espero o MESMO alvo, desisto e volto a livre
         if self.status == PAIRING and self.partner == expected_partner:
+            logger.warning("%s não respondeu o pedido de pareamento em %ss", expected_partner, PAIR_TIMEOUT)
             self._reset_to_free()
 
 

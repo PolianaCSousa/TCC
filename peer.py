@@ -22,7 +22,7 @@ from constants import (
     UPLOAD_RECEIVED, UPLOAD_ERROR, SEND_ABORTED, LAT_ACK_ERROR, PACKAGE_LOSS_TIMEOUT,
     LAT, LATENCY_TIMEOUT, LOADED_LATENCY_TIMEOUT,
     MIN_THROUGHPUT_BytePerSec, BYTES_THROUGHPUT_10MB, START_THROUGHPUT,
-    BYTES_THROUGHPUT_100KB, BYTES_THROUGHPUT_75MB, BYTES_THROUGHPUT_1MB,
+    BYTES_THROUGHPUT_100KB, BYTES_THROUGHPUT_70MB, BYTES_THROUGHPUT_1MB,
     END_ITERATION, END_LAT_PACKAGES, END_PACKAGE_LOSS, ACK_PACKAGE_LOSS,
     PACKAGE_LOSS_TOTAL, PACKAGE_LOSS_BATCH, PACKAGE_LOSS_PAUSE,
     THROUGHPUT_LABELS, BUFFER_AMOUNT_LIMIT, IPFS_TOPIC, CLIENT, SERVER, TEST_INTERVAL_SECONDS,
@@ -337,7 +337,7 @@ async def _client_throughput_phase():
     await calculate_client_throughput(BYTES_THROUGHPUT_100KB)
     await calculate_client_throughput(BYTES_THROUGHPUT_1MB)
     await calculate_client_throughput(BYTES_THROUGHPUT_10MB)
-    await calculate_client_throughput(BYTES_THROUGHPUT_75MB)
+    await calculate_client_throughput(BYTES_THROUGHPUT_70MB)
     state.events["end_throughput_experiments"].set()
 
 
@@ -606,7 +606,7 @@ async def _calculate_server_download():
     await _calculate_download(BYTES_THROUGHPUT_100KB)
     await _calculate_download(BYTES_THROUGHPUT_1MB)
     await _calculate_download(BYTES_THROUGHPUT_10MB)
-    await _calculate_download(BYTES_THROUGHPUT_75MB)
+    await _calculate_download(BYTES_THROUGHPUT_70MB)
     logger.info("---------------- FIM DO EXPERIMENTO ----------------")
 
 
@@ -709,6 +709,10 @@ async def main():
     # o aioice loga "Consent to send expired" em INFO. Sem isso, a conexão morre e o
     # único rastro é o "Connection state: closed", sem dizer o motivo.
     logging.getLogger("aioice").setLevel(logging.INFO)
+    # pareamento: em 2026-10-17 as duas máquinas passaram 19h em "Sem par" e o log não
+    # dizia se o pubsub entregava os announces. Estes dois respondem isso.
+    logging.getLogger("ipfs_signaling").setLevel(logging.INFO)
+    logging.getLogger("swarm_connector").setLevel(logging.INFO)
 
     # precisa valer antes da primeira conexão subir: é quando o query_consent começa
     relax_ice_consent()

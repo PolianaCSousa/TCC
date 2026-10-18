@@ -55,12 +55,12 @@ LATENCY_TEST_SIZE = 20
 BYTES_THROUGHPUT_100KB = 100 * 10 ** 3
 BYTES_THROUGHPUT_1MB = 1 * 10 ** 6
 BYTES_THROUGHPUT_10MB = 10 * 10 ** 6
-BYTES_THROUGHPUT_75MB = 75 * 10 ** 6
+BYTES_THROUGHPUT_70MB = 70 * 10 ** 6
 THROUGHPUT_LABELS = {
     BYTES_THROUGHPUT_100KB: "100KB",
     BYTES_THROUGHPUT_1MB: "1MB",
     BYTES_THROUGHPUT_10MB: "10MB",
-    BYTES_THROUGHPUT_75MB: "75MB",
+    BYTES_THROUGHPUT_70MB: "70MB",
 }
 
 # --- status da rodada (vira coluna no results.csv e tag no influx) ---
@@ -72,7 +72,7 @@ BUFFER_AMOUNT_LIMIT = {
     BYTES_THROUGHPUT_100KB: 20 * 10 ** 3,
     BYTES_THROUGHPUT_1MB: 100 * 10 ** 3,
     BYTES_THROUGHPUT_10MB: 1 * 10 ** 6,
-    BYTES_THROUGHPUT_75MB: 1 * 10 ** 6,
+    BYTES_THROUGHPUT_70MB: 1 * 10 ** 6,
 }
 
 # menor vazão que eu espero que meus usuários tenham
@@ -80,7 +80,11 @@ __MIN_THROUGHPUT_MbitPerSec = 1  ## 1 MbitPerSec - essa variavel é a velocidade
 MIN_THROUGHPUT_BytePerSec = (__MIN_THROUGHPUT_MbitPerSec / 8) * 10 ** 6  ## 8 MbitPerSec / 8 bits = 1 MBytePerSec - aqui como eu estou enviando Bytes no meu teste de vazão, eu preciso converter de bit pra Byte e multiplicar pela potência de 10 do MB
 
 # --- package size ---
-BYTES_PER_PACKAGE = 1400
+# = USERDATA_MAX_LENGTH do aiortc 1.14 (rtcsctptransport.py:28). Com 1400 cada mensagem
+# virava 2 fragmentos, 2 TSNs, e o SACK do receptor estourava (pack("!HH") > 65535)
+# na metade dos pacotes: foi a queda do 75MB em 2026-10-17 02:01. Com 1 TSN por
+# pacote o limiar dobra, ~65,5k pacotes por sentido e associação somando os 4 testes.
+BYTES_PER_PACKAGE = 1200
 
 # --- heartbeat ---
 HEARTBEAT_INTERVAL_SECONDS = 10
