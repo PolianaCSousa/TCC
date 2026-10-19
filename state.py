@@ -50,6 +50,8 @@ class PeerState:
             "role": None,
             "ip": None,
             "candidate_type": None,
+            "remote_candidate_type": None,
+            "via_turn": None,           # "true" se QUALQUER ponta usou relay
             "status": COMPLETE,
             "latency": None,
             "jitter": None,
@@ -114,7 +116,7 @@ class PeerState:
 
     def reset_results(self):
         for key in self.results:
-            if key not in ("role", "ip", "candidate_type"):
+            if key not in ("role", "ip", "candidate_type", "remote_candidate_type", "via_turn"):
                 self.results[key] = None
         self.results["status"] = COMPLETE  # a rodada nasce válida; só o abort muda isso
 

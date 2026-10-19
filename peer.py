@@ -119,7 +119,11 @@ def get_selected_candidate_pair():
         if pair is None:
             return None
         local = pair.local_candidate
-        return {"local_ip": local.host, "local_type": local.type}
+        # o TURN pode estar em QUALQUER ponta: se o par usa relay e eu falo direto com
+        # o relay dele, meu lado é "host" e o tráfego passa pelo TURN do mesmo jeito
+        # (2026-10-17 03:00). Só o remoto fecha essa conta.
+        remote = pair.remote_candidate
+        return {"local_ip": local.host, "local_type": local.type, "remote_type": remote.type}
     except (AttributeError, KeyError):
         return None
 
@@ -137,6 +141,9 @@ def _make_state_change_handler(pc):
             if info:
                 state.results["ip"] = info["local_ip"]
                 state.results["candidate_type"] = info["local_type"]
+                state.results["remote_candidate_type"] = info["remote_type"]
+                # string, não bool: vira tag no influx e o Results não aceita bool
+                state.results["via_turn"] = str("relay" in (info["local_type"], info["remote_type"])).lower()
                 logger.info("Candidate local: %s (%s)", info["local_ip"], info["local_type"])
         elif pc.connectionState == "failed":
             logger.error("ICE falhou — nenhum par de candidates funcionou.")

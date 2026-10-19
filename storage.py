@@ -11,7 +11,7 @@ RESULTS_FILE = "results.csv"
 
 # o que identifica a medição (vira tag/índice no influx); todo o resto do results é métrica (field)
 # status é categórico e de baixa cardinalidade (complete/aborted), então cabe como tag
-TAG_KEYS = ("role", "ip", "candidate_type", "status")
+TAG_KEYS = ("role", "ip", "candidate_type", "remote_candidate_type", "via_turn", "status")
 
 _influx: InfluxService | None = None
 
