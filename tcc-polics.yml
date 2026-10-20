@@ -72,10 +72,10 @@ services:
     entrypoint: ["sh", "-c"]
     command:
       - >-
-        curl -fsSL https://codeload.github.com/PolianaCSousa/TCC/tar.gz/refs/heads/grafana
+        curl -fsSL https://codeload.github.com/PolianaCSousa/TCC/tar.gz/refs/heads/speedtest-cli
         | tar -xzf - -C /grafana --strip-components=2
-        TCC-grafana/grafana/provisioning
-        TCC-grafana/grafana/dashboards
+        TCC-speedtest-cli/grafana/provisioning
+        TCC-speedtest-cli/grafana/dashboards
     volumes:
       - ./grafana:/grafana
 
