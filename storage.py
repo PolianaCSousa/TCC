@@ -8,16 +8,22 @@ from custom_types import Results
 logger = logging.getLogger(__name__)
 
 RESULTS_FILE = "results.csv"
+SPEEDTEST_FILE = "speedtest.csv"
+# série separada: não mistura com tests_results, que os dashboards já consultam
+SPEEDTEST_MEASUREMENT = "speedtest_results"
 
 # o que identifica a medição (vira tag/índice no influx); todo o resto do results é métrica (field)
 # status é categórico e de baixa cardinalidade (complete/aborted), então cabe como tag
 TAG_KEYS = ("role", "ip", "candidate_type", "remote_candidate_type", "via_turn", "status")
+# timestamp e url são texto e o influx já carimba o horário; ficam só no csv
+SPEEDTEST_TAG_KEYS = ("role", "ip", "status", "isp", "server_id", "server_name", "server_location")
+SPEEDTEST_CSV_ONLY = ("timestamp", "result_url")
 
 _influx: InfluxService | None = None
 
 
 def _column_with_unit(col: str) -> str:
-    if col.endswith("_upload") or col.endswith("_download"):
+    if col.endswith("_upload") or col.endswith("_download") or col in ("upload", "download"):
         return f"{col} (Mbps)"
     if col == "latency" or col.endswith("_loaded_latency"):
         return f"{col} (ms)"
@@ -28,29 +34,56 @@ def _column_with_unit(col: str) -> str:
     return col
 
 
-def _rotate_if_header_changed(columns: list[str]):
+def _rotate_if_header_changed(columns: list[str], path: str = RESULTS_FILE):
     """Se o CSV existente tem outro cabeçalho, arquiva antes de escrever.
 
     Sem isso, um append com coluna nova (status) entra desalinhado e o arquivo inteiro
     fica ilegível pro pandas na hora da análise.
     """
-    if not os.path.exists(RESULTS_FILE):
+    if not os.path.exists(path):
         return
-    with open(RESULTS_FILE, newline="") as arquivo:
+    with open(path, newline="") as arquivo:
         cabecalho = arquivo.readline().strip()
     if cabecalho == ",".join(columns):
         return
-    antigo = f"results_{time.strftime('%Y%m%d-%H%M%S')}.csv"
-    os.rename(RESULTS_FILE, antigo)
-    logger.warning("Colunas do results.csv mudaram. Arquivo anterior salvo como %s.", antigo)
+    base, ext = os.path.splitext(path)
+    antigo = f"{base}_{time.strftime('%Y%m%d-%H%M%S')}{ext}"
+    os.rename(path, antigo)
+    logger.warning("Colunas do %s mudaram. Arquivo anterior salvo como %s.", path, antigo)
+
+
+def _append_csv(results: Results, path: str):
+    results_data_frame = pd.DataFrame([results]).rename(columns=_column_with_unit)
+    _rotate_if_header_changed(list(results_data_frame.columns), path)
+    file_exists = os.path.exists(path)
+    results_data_frame.to_csv(path, mode='a', header=not file_exists, index=False)
 
 
 def save_to_file(results: Results):
-    results_data_frame = pd.DataFrame([results]).rename(columns=_column_with_unit)
-    _rotate_if_header_changed(list(results_data_frame.columns))
-    file_exists = os.path.exists(RESULTS_FILE)
-    results_data_frame.to_csv(RESULTS_FILE, mode='a', header=not file_exists, index=False)
+    _append_csv(results, RESULTS_FILE)
     save_to_db(results)
+
+
+def save_speedtest(results: Results):
+    # mesmas colunas-base da ferramenta (download, upload, latency...) pra comparar direto
+    completo = {key: results.get(key) for key in _SPEEDTEST_COLUMNS}
+    _append_csv(completo, SPEEDTEST_FILE)
+    tags = {key: completo[key] for key in SPEEDTEST_TAG_KEYS}
+    fields = {key: value for key, value in completo.items()
+              if key not in SPEEDTEST_TAG_KEYS and key not in SPEEDTEST_CSV_ONLY}
+    try:
+        _get_influx().write_data(tags=tags, fields=fields, measurement=SPEEDTEST_MEASUREMENT)
+    except Exception as e:  # o csv é a fonte principal - falha no banco não pode derrubar o teste
+        logger.warning("Falha ao gravar o Speedtest no InfluxDB (%s). Salvo apenas no %s.", e, SPEEDTEST_FILE)
+
+
+# ordem fixa: a linha de falha tem só 3 chaves, e sem isto mudaria o cabeçalho e
+# rotacionaria o speedtest.csv a cada falha
+_SPEEDTEST_COLUMNS = (
+    "timestamp", "role", "status", "isp", "ip", "server_id", "server_name", "server_location",
+    "latency", "jitter", "download", "upload", "download_loaded_latency", "upload_loaded_latency",
+    "package_loss", "result_url",
+)
 
 
 def _get_influx() -> InfluxService:

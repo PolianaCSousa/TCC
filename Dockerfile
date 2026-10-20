@@ -28,7 +28,14 @@ RUN tar -xvzf kubo_v0.43.0_linux-amd64.tar.gz && \
     cd kubo && sh install.sh && cd ..  && \
     ipfs --version 
 
-RUN git clone -b grafana https://github.com/PolianaCSousa/TCC.git /TCC
+# Speedtest CLI oficial da Ookla: referência de comparação, rodado entre as rodadas
+# (speedtest_runner.py). Binário estático, não precisa de repositório apt.
+RUN wget https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-linux-x86_64.tgz && \
+    tar -xzf ookla-speedtest-1.2.0-linux-x86_64.tgz -C /usr/local/bin speedtest && \
+    rm ookla-speedtest-1.2.0-linux-x86_64.tgz && \
+    speedtest --version
+
+RUN git clone -b speedtest-cli https://github.com/PolianaCSousa/TCC.git /TCC
 RUN mv /TCC/* /app
 # RUN cd /app && python3 -m venv venv && source venv/bin/activate
 # RUN pip install --no-cache-dir -r requirements.txt

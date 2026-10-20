@@ -164,7 +164,16 @@ REPLY_TIMEOUT_SECONDS = 60
 # IPFS topic name
 IPFS_TOPIC = "tcc-polics"
 
-# intervalo (segundos) entre o fim de um teste e o próximo pareamento (daemon)
+# Ciclo intercalado com o Speedtest (pedido do orientador):
+#   rodada da ferramenta → SPEEDTEST_DELAY → 1 Speedtest → TEST_INTERVAL sem teste → repete
+# A pausa antes do Speedtest deixa a conexão WebRTC terminar de fechar, pra um teste não
+# medir o rastro do outro. O intervalo longo deixa o link "descansar" entre os pares.
+SPEEDTEST_DELAY_SECONDS = 10
+# uma medição da Ookla leva ~30-40s; 120s cobre link lento sem deixar o daemon pendurado
+SPEEDTEST_TIMEOUT_SECONDS = 120
+
+# intervalo (segundos) entre o fim do Speedtest e o próximo pareamento (daemon)
+# 30s só pro teste local; o valor da coleta é 5 * 60 (pedido do orientador)
 TEST_INTERVAL_SECONDS = 30
 
 # --- swarm connect: rendezvous via DHT ---

@@ -36,7 +36,10 @@ O ciclo de uma rodada:
 4. Sobem quatro canais de dados — controle, latência, vazão e perda de pacotes —
    e os testes rodam em sequência, incluindo latência medida com o link saturado.
 5. O resultado é gravado no `results.csv` e no InfluxDB.
-6. O peer espera 30 segundos, volta a ficar livre e procura um novo par.
+6. O peer espera 10 segundos e roda **uma medição do Speedtest** (CLI oficial da
+   Ookla), como referência de comparação. O resultado vai para o `speedtest.csv` e
+   para a série `speedtest_results` no InfluxDB.
+7. O peer fica 5 minutos sem testar, volta a ficar livre e procura um novo par.
 
 **Você precisa de pelo menos duas máquinas rodando a ferramenta.** Um peer
 sozinho fica anunciando indefinidamente sem nada para medir — não é erro, é falta

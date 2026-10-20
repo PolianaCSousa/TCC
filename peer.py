@@ -28,8 +28,9 @@ from constants import (
     THROUGHPUT_LABELS, BUFFER_AMOUNT_LIMIT, IPFS_TOPIC, CLIENT, SERVER, TEST_INTERVAL_SECONDS,
     HEARTBEAT_INTERVAL_SECONDS, HEARTBEAT_PACKAGE_SIZE,
     ABORTED, RETRY_INTERVAL_SECONDS, ROUND_WATCHDOG_SECONDS, PAIRING_TIMEOUT_SECONDS,
-    REPLY_TIMEOUT_SECONDS
+    REPLY_TIMEOUT_SECONDS, SPEEDTEST_DELAY_SECONDS
 )
+from speedtest_runner import run_speedtest
 from experiments.latency import(
     server_send_lat_ack,
     client_send_lat_package,
@@ -745,6 +746,8 @@ async def main():
     # dizia se o pubsub entregava os announces. Estes dois respondem isso.
     logging.getLogger("ipfs_signaling").setLevel(logging.INFO)
     logging.getLogger("swarm_connector").setLevel(logging.INFO)
+    # sem isto só o "Speedtest falhou" (WARNING) aparecia; o resultado ficava mudo
+    logging.getLogger("speedtest_runner").setLevel(logging.INFO)
 
     # precisa valer antes da primeira conexão subir: é quando o query_consent começa
     relax_ice_consent()
@@ -767,8 +770,13 @@ async def main():
             outcome = await wait_round_outcome()
 
             if outcome == "round_done":
+                # o signaling segue PAIRED até o reset lá embaixo, então ninguém tenta
+                # parear comigo enquanto o Speedtest satura o link
+                logger.info("Rodada concluída. Speedtest em %ss...", SPEEDTEST_DELAY_SECONDS)
+                await asyncio.sleep(SPEEDTEST_DELAY_SECONDS)
+                await run_speedtest(state.role)
                 espera = TEST_INTERVAL_SECONDS
-                logger.info("Rodada concluída. Aguardando %ss até a próxima...", espera)
+                logger.info("Aguardando %ss até a próxima rodada...", espera)
             elif outcome == "timeout" and not state.round_active:
                 # nunca conectou: não há medição nenhuma pra salvar, só tento parear de novo.
                 # Em 2026-09-26 uma oferta ficou sem resposta e isto só disparava em 45min.

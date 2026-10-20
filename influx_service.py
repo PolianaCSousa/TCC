@@ -15,8 +15,8 @@ class InfluxService:
         )
         self.write_client = self.client.write_api(write_options=SYNCHRONOUS)
 
-    def write_data(self, tags : dict, fields : dict): #preciso passar measurements, tags e fields
-        point = Point(config.INFLUXDB_MEASUREMENT)
+    def write_data(self, tags : dict, fields : dict, measurement : str | None = None): #preciso passar measurements, tags e fields
+        point = Point(measurement or config.INFLUXDB_MEASUREMENT)
 
         #add tags - tag é sempre string no influx
         for key, value in tags.items():
