@@ -123,9 +123,34 @@ def get_selected_candidate_pair():
         # o relay dele, meu lado é "host" e o tráfego passa pelo TURN do mesmo jeito
         # (2026-10-17 03:00). Só o remoto fecha essa conta.
         remote = pair.remote_candidate
-        return {"local_ip": local.host, "local_type": local.type, "remote_type": remote.type}
+        remote_type = _remote_type_from_sdp(connection, remote)
+        logger.info("ICE escolheu: local %s:%s (%s) -> remoto %s:%s (%s pelo ICE, %s pelo SDP)",
+                    local.host, local.port, local.type,
+                    remote.host, remote.port, remote.type, remote_type)
+        return {"local_ip": local.host, "local_type": local.type, "remote_type": remote_type}
     except (AttributeError, KeyError):
         return None
+
+
+def _remote_type_from_sdp(connection, remote):
+    """Tipo do candidate remoto como o PAR declarou no SDP, não como o aioice rotulou.
+
+    O aioice rotula de "prflx" todo endereço que manda checagem antes do SDP chegar
+    (aioice/ice.py, check_incoming) e não corrige quando o SDP chega depois
+    (add_remote_candidate só acrescenta). No cliente isso é corrida comum: a resposta
+    vem pelo pubsub, e as checagens do servidor chegam antes. Se o servidor está atrás
+    de relay, o endereço do relay ficaria "prflx" e via_turn sairia false.
+
+    "prflx" nunca vem do SDP (o aiortc não anuncia esse tipo), então tudo que não é
+    prflx na lista foi declarado pelo par.
+    """
+    do_sdp = [c for c in connection._remote_candidates if c.type != "prflx"]
+    for c in do_sdp:
+        logger.info("SDP do par: %s:%s typ %s", c.host, c.port, c.type)
+    for c in do_sdp:
+        if (c.host, c.port) == (remote.host, remote.port):
+            return c.type
+    return remote.type   # endereço que o par não anunciou (NAT no caminho): prflx de verdade
 
 
 def _make_state_change_handler(pc):
