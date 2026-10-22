@@ -344,7 +344,7 @@ async def calculate_throughput(role, PEER, throughput_finished):
         vazao_em_Mbps = _vazao_download_mbps(PEER, label)
         state.results[f"{label}_download"] = vazao_em_Mbps  # It's here when the tests finish
         if role != "server":
-            logger.info("Resultados do cliente: %s", state.results)
+            logger.debug("Resultados do cliente: %s", state.results)
         if vazao_em_Mbps is None:
             # o par fica com upload=None em vez de receber um número inválido
             safe_send(canal, UPLOAD_ERROR)

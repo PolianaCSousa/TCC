@@ -104,6 +104,8 @@ async def cancel_round_tasks():
 
 
 def finish_round():
+    # aqui e só aqui: é o único ponto por onde as duas pontas passam uma vez por rodada
+    logger.info("---------------- FIM DO EXPERIMENTO ----------------")
     state.round_active = False
     state.events["round_done"].set()
 
@@ -125,7 +127,7 @@ def get_selected_candidate_pair():
         # (2026-10-17 03:00). Só o remoto fecha essa conta.
         remote = pair.remote_candidate
         remote_type = _remote_type_from_sdp(connection, remote)
-        logger.info("ICE escolheu: local %s:%s (%s) -> remoto %s:%s (%s pelo ICE, %s pelo SDP)",
+        logger.debug("ICE escolheu: local %s:%s (%s) -> remoto %s:%s (%s pelo ICE, %s pelo SDP)",
                     local.host, local.port, local.type,
                     remote.host, remote.port, remote.type, remote_type)
         return {"local_ip": local.host, "local_type": local.type, "remote_type": remote_type}
@@ -147,7 +149,7 @@ def _remote_type_from_sdp(connection, remote):
     """
     do_sdp = [c for c in connection._remote_candidates if c.type != "prflx"]
     for c in do_sdp:
-        logger.info("SDP do par: %s:%s typ %s", c.host, c.port, c.type)
+        logger.debug("SDP do par: %s:%s typ %s", c.host, c.port, c.type)
     for c in do_sdp:
         if (c.host, c.port) == (remote.host, remote.port):
             return c.type
@@ -189,7 +191,7 @@ async def _heartbeat_loop(channel):
     while channel.readyState == "open":
         if not safe_send(channel, package):
             break
-        logger.info("heartbeat enviado (%s bytes)", HEARTBEAT_PACKAGE_SIZE)
+        logger.debug("heartbeat enviado (%s bytes)", HEARTBEAT_PACKAGE_SIZE)
         # depois do sleep a conexão pode ter sido fechada, por isso o readyState é
         # checado de novo no topo do loop antes do próximo send
         await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
@@ -284,7 +286,7 @@ def _register_client_control_channel_handlers():
         elif msg is not None and msg["msg"] == 'upload':
             # espelha o "Upload do servidor" do outro lado: sem esta linha não dá pra
             # saber se o resultado chegou e não disparou, ou se nunca chegou (2026-09-26)
-            logger.info("Upload do cliente: %s", msg["value"])
+            logger.debug("Upload do cliente: %s", msg["value"])
             label = THROUGHPUT_LABELS[msg["test_size"]]
             state.results[f"{label}_upload"] = msg["value"]
             state.events["upload_received"].set()
@@ -448,8 +450,8 @@ async def calculate_client_latency(qtd_tests, result_key=LATENCY, test_size=None
         if state.client[state.t1_latency_key()][i] is not None:
             all_measures.append(state.client[state.t1_latency_key()][i] - state.client[state.t0_latency_key()][i])
         else:
-            continue 
-        logger.info(f'===> qtd_tests={qtd_tests} \t i={i} of range={qtd_received}')
+            continue
+        logger.debug("===> qtd_tests=%s \t i=%s of range=%s", qtd_tests, i, qtd_received)
 
     calc_latency(all_measures, result_key, test_size)
 
@@ -557,16 +559,15 @@ def _register_server_control_channel_handler():
         elif message == ACK_PACKAGE_LOSS:
             state.events["ack_package_loss_received"].set()
         elif msg is not None and msg["msg"] == 'upload':
-            logger.info("Upload do servidor: %s", msg["value"])
+            logger.debug("Upload do servidor: %s", msg["value"])
             label = THROUGHPUT_LABELS[msg["test_size"]]
             state.results[f"{label}_upload"] = msg["value"]  # It's here when the tests finish for server
             state.events["upload_received"].set()
-            logger.info("Resultados do servidor: %s", state.results)
+            logger.debug("Resultados do servidor: %s", state.results)
         elif msg is not None and msg["msg"] == 'package_loss':
             state.results["package_loss"] = msg["value"]
             state.events["package_loss_received"].set()
             logger.info("Perda de pacotes do servidor: %s", state.results["package_loss"])
-            logger.info("---------------- FIM DO EXPERIMENTO ----------------")
 
 
 def _register_server_latency_channel_handler():
@@ -640,7 +641,6 @@ async def _calculate_server_download():
     await _calculate_download(BYTES_THROUGHPUT_1MB)
     await _calculate_download(BYTES_THROUGHPUT_10MB)
     await _calculate_download(BYTES_THROUGHPUT_50MB)
-    logger.info("---------------- FIM DO EXPERIMENTO ----------------")
 
 
 async def _calculate_download(test_size):
@@ -652,7 +652,7 @@ async def _calculate_download(test_size):
 
 async def server_latency(message):
     if message == LAT:
-        logger.info("<<< recebi LAT")
+        logger.debug("<<< recebi LAT")
         state.events["ack_received"].clear()
         state.events["lat_ack_error"].clear()
         await server_send_lat_ack(state.server["channels"][LATENCY])
@@ -671,7 +671,7 @@ async def server_latency(message):
             logger.warning("ACK fora de par (t0=%s t1=%s): ignorando pra não desalinhar.",
                            len(t0_srv), len(t1_srv))
         state.events["ack_received"].set()
-        logger.info("<<< recebi ACK")
+        logger.debug("<<< recebi ACK")
         safe_send(state.server["channels"][CONTROL], END_ITERATION)
 
 
@@ -684,8 +684,8 @@ def calculate_server_latency(qtd_tests, result_key=LATENCY, test_size=None):
         if state.server[state.t1_latency_key()][i] is not None:
             all_measures.append((state.server[state.t1_latency_key()][i] - state.server[state.t0_latency_key()][i]))
         else:
-            continue  
-        logger.info(f'===> qtd_tests={qtd_tests} \t i={i} of range={qtd_received}')
+            continue
+        logger.debug("===> qtd_tests=%s \t i=%s of range=%s", qtd_tests, i, qtd_received)
 
     calc_latency(all_measures, result_key, test_size)
 
@@ -705,6 +705,20 @@ def _save_aborted_round():
     logger.warning("Salvando rodada incompleta: %s", state.results)
     save_to_file(state.results)
     state.reset_results()
+
+
+def _ice_checks_em_debug(record):
+    """Rebaixa pra DEBUG os "Check CandidatePair(...)" do aioice.
+
+    Ele loga tudo em INFO pelo mesmo logger, então não dá pra separar por nível: o
+    "Consent to send expired" precisa continuar em INFO, os checks não. O filtro do
+    logger roda depois do teste de nível, por isso a reavaliação aqui dentro.
+    """
+    # o aioice monta a mensagem como "%s " + msg, com a Connection no primeiro %s
+    if isinstance(record.msg, str) and record.msg.startswith("%s Check "):
+        record.levelno, record.levelname = logging.DEBUG, "DEBUG"
+        return logging.getLogger("aioice.ice").isEnabledFor(logging.DEBUG)
+    return True
 
 
 # Função principal para iniciar o cliente e conectar
@@ -742,6 +756,8 @@ async def main():
     # o aioice loga "Consent to send expired" em INFO. Sem isso, a conexão morre e o
     # único rastro é o "Connection state: closed", sem dizer o motivo.
     logging.getLogger("aioice").setLevel(logging.INFO)
+    # ...mas o mesmo logger também solta cada transição de CandidatePair em INFO
+    logging.getLogger("aioice.ice").addFilter(_ice_checks_em_debug)
     # pareamento: em 2026-10-17 as duas máquinas passaram 19h em "Sem par" e o log não
     # dizia se o pubsub entregava os announces. Estes dois respondem isso.
     logging.getLogger("ipfs_signaling").setLevel(logging.INFO)

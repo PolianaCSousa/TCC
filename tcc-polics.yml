@@ -107,12 +107,11 @@ services:
       INFLUXDB_BUCKET: "internet_metrics"
       INFLUXDB_MEASUREMENT: "tests_results"
       INFLUXDB_TOKEN: "1bRD2iO0ODRNE5dfxHPqnaIoMU_bUx2wupydrs6f4_dZBzXS-lfjwDKT6eobG-8R6KnzbY0LHS7J3bGUDZXH5g=="
-      TURN_API_KEY: "31039a9fee7240cf0c64e10bbf48827c436e"
       # inertes por enquanto: IPFS_TOPIC e TEST_INTERVAL_SECONDS estão fixos em
       # constants.py e PEER_NAME não é lido por ninguém. Descomentar quando o
       # código passar a ler do ambiente.
       # IPFS_TOPIC: ${IPFS_TOPIC:-tcc-polics}
-      # TEST_INTERVAL_SECONDS: ${TEST_INTERVAL_SECONDS:-30}
+      # TEST_INTERVAL_SECONDS: ${TEST_INTERVAL_SECONDS:-150}
       # PEER_NAME: ${PEER_NAME:-peer1}
     #ports:
       # o swarm do libp2p precisa de caminho de entrada: sem isso o daemon só

@@ -140,7 +140,7 @@ PACING_MAX_PAUSE = 0.2
 PACING_LOW_WATER = 0.7           # só volta a acelerar abaixo de 70% do alvo (histerese)
 
 # --- recuperação de rodada ---
-RETRY_INTERVAL_SECONDS = 10      # espera curta antes de reparear quando a rodada foi abortada
+RETRY_INTERVAL_SECONDS = 50      # espera antes de reparear quando a rodada foi abortada
 # rede de segurança pra rodada que trava SEM a conexão cair. Precisa ficar acima do
 # pior caso legítimo: o test_complete do 100MB sozinho espera até 800s, e o upload de
 # 100MB freado no teto do autoajuste (~2,8Mbps) leva ~5min — mais latência e perda de
@@ -173,8 +173,7 @@ SPEEDTEST_DELAY_SECONDS = 10
 SPEEDTEST_TIMEOUT_SECONDS = 120
 
 # intervalo (segundos) entre o fim do Speedtest e o próximo pareamento (daemon)
-# 30s só pro teste local; o valor da coleta é 5 * 60 (pedido do orientador)
-TEST_INTERVAL_SECONDS = 30
+TEST_INTERVAL_SECONDS = 150
 
 # --- swarm connect: rendezvous via DHT ---
 # O gossipsub só troca mensagem entre peers já conectados no swarm, e ele não

@@ -60,7 +60,10 @@ def _append_csv(results: Results, path: str):
 
 
 def save_to_file(results: Results):
-    _append_csv(results, RESULTS_FILE)
+    # mesmo formato UTC do speedtest.csv, pra cruzar as duas tabelas pela hora. Só no
+    # csv: no influx o próprio ponto já é carimbado na escrita, no mesmo instante
+    carimbado = {"timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), **results}
+    _append_csv(carimbado, RESULTS_FILE)
     save_to_db(results)
 
 

@@ -85,15 +85,13 @@ arquivo não vai para o git.
 | `INFLUXDB_PASSWORD` | senha de acesso ao banco, **mínimo 8 caracteres** |
 | `INFLUXDB_TOKEN` | uma chave aleatória; gere com `openssl rand -hex 32` |
 | `GRAFANA_PASSWORD` | a senha com que você vai entrar no Grafana |
-| `TURN_API_KEY` | opcional — veja abaixo |
 
 As demais já vêm com valores prontos e você não precisa mexer.
 
-**Sobre o `TURN_API_KEY`:** é a chave de um servidor de relay, usada quando os
-dois peers estão atrás de NAT restritivo e não conseguem se conectar direto. Sem
-ela a ferramenta funciona normalmente, usando apenas o STUN público do Google —
-só algumas combinações de rede vão falhar em conectar. Para obter uma, crie uma
-conta gratuita em [metered.ca](https://www.metered.ca/).
+**Sobre a conexão entre os peers:** a ferramenta usa apenas o STUN público do
+Google, sem servidor de relay (TURN). Se os dois peers estiverem atrás de NAT
+restritivo e não conseguirem se conectar direto, a conexão falha e o peer tenta
+parear de novo.
 
 **No Linux**, ajuste também o `APP_UID` e o `APP_GID` para os seus, senão os
 arquivos gerados saem pertencendo ao root:
