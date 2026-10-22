@@ -22,17 +22,27 @@ RUN cd /app && python3 -m venv venv && source venv/bin/activate
 #RUN apt install -y --no-install-recommends build-essential python3-dev pkg-config libavdevice-dev libavfilter-dev libopus-dev libvpx-dev libsrtp2-dev
 RUN pip install --upgrade pip ; pip install --no-cache-dir -r requirements.txt
     
+# Imagem multi-arquitetura: o buildx preenche TARGETARCH com amd64 ou arm64
+# (Raspberry Pi) conforme a plataforma sendo construída. O kubo usa esses mesmos
+# nomes; o speedtest chama de x86_64 e aarch64.
+ARG TARGETARCH
+
 #RUN wget https://dist.ipfs.tech/kubo/v0.43.0/kubo_v0.43.0_linux-amd64.tar.gz && \
-RUN wget https://github.com/ipfs/kubo/releases/download/v0.43.0/kubo_v0.43.0_linux-amd64.tar.gz 
-RUN tar -xvzf kubo_v0.43.0_linux-amd64.tar.gz && \
+RUN wget https://github.com/ipfs/kubo/releases/download/v0.43.0/kubo_v0.43.0_linux-${TARGETARCH}.tar.gz
+RUN tar -xvzf kubo_v0.43.0_linux-${TARGETARCH}.tar.gz && \
     cd kubo && sh install.sh && cd ..  && \
-    ipfs --version 
+    ipfs --version
 
 # Speedtest CLI oficial da Ookla: referência de comparação, rodado entre as rodadas
 # (speedtest_runner.py). Binário estático, não precisa de repositório apt.
-RUN wget https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-linux-x86_64.tgz && \
-    tar -xzf ookla-speedtest-1.2.0-linux-x86_64.tgz -C /usr/local/bin speedtest && \
-    rm ookla-speedtest-1.2.0-linux-x86_64.tgz && \
+RUN case "${TARGETARCH}" in \
+        amd64) SPEEDTEST_ARCH=x86_64 ;; \
+        arm64) SPEEDTEST_ARCH=aarch64 ;; \
+        *) echo "arquitetura sem speedtest: ${TARGETARCH}"; exit 1 ;; \
+    esac && \
+    wget https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-linux-${SPEEDTEST_ARCH}.tgz && \
+    tar -xzf ookla-speedtest-1.2.0-linux-${SPEEDTEST_ARCH}.tgz -C /usr/local/bin speedtest && \
+    rm ookla-speedtest-1.2.0-linux-${SPEEDTEST_ARCH}.tgz && \
     speedtest --version
 
 RUN git clone -b speedtest-cli https://github.com/PolianaCSousa/TCC.git /TCC
