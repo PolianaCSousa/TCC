@@ -218,6 +218,8 @@ async def stop_heartbeat():
 async def client_make_offer(target_name):
     state.role = CLIENT
     state.results["role"] = state.role
+    state.results["peer_id"] = signaling.my_id
+    state.results["remote_peer_id"] = target_name
     _create_client_data_channels()
     await _create_and_send_sdp_offer(target_name)
     _register_client_control_channel_handlers()
@@ -492,6 +494,8 @@ def client_calculates_server_package_loss():
 async def server_receives_offer(data):
     state.role = SERVER
     state.results["role"] = state.role
+    state.results["peer_id"] = signaling.my_id
+    state.results["remote_peer_id"] = data["from"]   # quem mandou a offer é o par desta conexão
     # INFO de propósito: é a linha que diz se a oferta CHEGOU. Em 2026-09-26 ela era
     # debug, e sem ela não deu pra saber se o pubsub falhou ou se o peer estava surdo
     logger.info("offer recebida no server_peer")

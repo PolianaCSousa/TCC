@@ -48,6 +48,10 @@ class PeerState:
 
         self.results: Results = {
             "role": None,
+            # quem mediu com quem: sem isto, casar as linhas de duas máquinas só dava por
+            # horário, e em 2026-10-23 isso gerou pares falsos (o tópico tinha 5 peers)
+            "peer_id": None,
+            "remote_peer_id": None,
             "ip": None,
             "candidate_type": None,
             "remote_candidate_type": None,

@@ -14,7 +14,10 @@ SPEEDTEST_MEASUREMENT = "speedtest_results"
 
 # o que identifica a medição (vira tag/índice no influx); todo o resto do results é métrica (field)
 # status é categórico e de baixa cardinalidade (complete/aborted), então cabe como tag
-TAG_KEYS = ("role", "ip", "candidate_type", "remote_candidate_type", "via_turn", "status")
+# os peer ids TÊM que ser tag: o write_data converte todo field com float(), e um texto
+# ali derrubava a escrita da rodada inteira no influx
+TAG_KEYS = ("role", "peer_id", "remote_peer_id", "ip", "candidate_type", "remote_candidate_type",
+            "via_turn", "status")
 # timestamp e url são texto e o influx já carimba o horário; ficam só no csv
 SPEEDTEST_TAG_KEYS = ("role", "ip", "status", "isp", "server_id", "server_name", "server_location")
 SPEEDTEST_CSV_ONLY = ("timestamp", "result_url")
