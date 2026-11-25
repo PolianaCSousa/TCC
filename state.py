@@ -12,8 +12,7 @@ class PeerState:
         self.role: str | None = None
         self.latency_type: str = "unloaded"
         self.heartbeat_task: asyncio.Task | None = None
-        # só aborto a rodada por queda de conexão enquanto ela está de fato rodando:
-        # entre uma rodada e outra o par também fecha o peer antigo, e isso é normal
+        # True only while the round is in progress
         self.round_active: bool = False
 
         self.client: Client = {
@@ -48,14 +47,12 @@ class PeerState:
 
         self.results: Results = {
             "role": None,
-            # quem mediu com quem: sem isto, casar as linhas de duas máquinas só dava por
-            # horário, e em 2026-10-23 isso gerou pares falsos (o tópico tinha 5 peers)
             "peer_id": None,
             "remote_peer_id": None,
             "ip": None,
             "candidate_type": None,
             "remote_candidate_type": None,
-            "via_turn": None,           # "true" se QUALQUER ponta usou relay
+            "via_turn": None,           # "true" if either end used a relay
             "status": COMPLETE,
             "latency": None,
             "jitter": None,
@@ -122,7 +119,7 @@ class PeerState:
         for key in self.results:
             if key not in ("role", "ip", "candidate_type", "remote_candidate_type", "via_turn"):
                 self.results[key] = None
-        self.results["status"] = COMPLETE  # a rodada nasce válida; só o abort muda isso
+        self.results["status"] = COMPLETE
 
     def reset_for_test(self):
         self.events["upload_received"].clear()
@@ -132,15 +129,10 @@ class PeerState:
         self.events["upload_error"].clear()
         self.events["send_aborted"].clear()
 
+    # marks the round as aborted and wakes the main loop to re-pair
     def abort_round(self, reason):
-        """A conexão morreu antes do fim. Acorda o loop principal pra reparear.
-
-        Mora aqui (e não em peer.py) porque quem detecta a morte nem sempre é o
-        handler de estado do ICE: o `_wait_buffer_drain` em experiments/throughput.py
-        também precisa chamar, e ele não pode importar peer.py (import circular).
-        """
         if not self.round_active:
-            return  # o par fechou a conexão antiga entre rodadas: é o fluxo normal
+            return  # closing between rounds is the normal flow
         self.round_active = False
         self.results["status"] = ABORTED
         logger.error("Rodada abortada: %s", reason)

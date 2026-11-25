@@ -33,43 +33,23 @@ import time
 
 logger = logging.getLogger(__name__)
 
-# relógio do detector de travamento, no módulo pra o teste poder avançar o tempo
-# sem dormir (o _DrainWatch nasce dentro de send_throughput_data)
+# stall detector clock (replaceable in tests)
 _clock = time.monotonic
 
 
+# latest RTT (ms) from the loaded-latency probes and the number of samples
 def _ultimo_rtt_ms(PEER):
-    """Última medida de ida-e-volta das sondas de latência sob carga, em ms.
-
-    Devolve (rtt, qtd_amostras). O contador importa tanto quanto o valor: sem ele o
-    controlador continuaria reagindo à MESMA amostra depois que as sondas acabam
-    (são só LATENCY_TEST_SIZE=20 por fase) e escorregaria numa direção só.
-    """
     t0 = PEER[state.t0_latency_key()]
     t1 = PEER[state.t1_latency_key()]
     qtd = min(len(t0), len(t1))
     for i in range(qtd - 1, -1, -1):
-        if t1[i] is not None:            # None = sonda que se perdeu, não serve de sinal
+        if t1[i] is not None:  # None = lost probe
             return (t1[i] - t0[i]) / 10 ** 6, qtd
     return None, qtd
 
 
+# paces the send based on the measured RTT instead of waiting for the link to saturate
 class _DelayPacer:
-    """Espaça o envio em função do RTT, em vez de esperar o link transbordar.
-
-    O congestion control do SCTP é baseado em perda, e perda só aparece quando a
-    fila do gargalo estoura — ele enche a fila por projeto. É o que levou a
-    loaded_latency a 1451ms e travou a associação em 2026-09-23.
-
-    A lei é multiplicativa nos dois sentidos (x2 pra subir, x0,5 pra descer), porque
-    o orçamento de realimentação é pequeno: ~20 sondas por fase. Recuperação aditiva
-    deixaria a pausa presa no teto depois de um pico no começo do envio.
-
-    Limitação conhecida: as sondas só rodam durante o upload do CLIENTE, então é só
-    lá que existe sinal fresco. No upload do servidor o controlador segura a pausa
-    em que estiver (zero, na prática). Medir isso exige sondas naquela fase também.
-    """
-
     def __init__(self, PEER, label):
         self.PEER = PEER
         self.label = label
@@ -81,7 +61,7 @@ class _DelayPacer:
 
     async def step(self, pacote):
         if pacote % PACING_BATCH:
-            return                        # só age de lote em lote
+            return  # acts only once per batch
         rtt, amostras = _ultimo_rtt_ms(self.PEER)
         if rtt is not None and amostras > self.amostras_vistas:
             self.amostras_vistas = amostras
@@ -91,9 +71,8 @@ class _DelayPacer:
             elif rtt < LOADED_LATENCY_TARGET_MS * PACING_LOW_WATER:
                 self.pausa *= PACING_DECAY
                 if self.pausa < PACING_STEP:
-                    self.pausa = 0.0     # decaimento puro nunca zera; aqui ele solta de vez
-            # entre LOW_WATER*alvo e o alvo fica a zona morta: sem ela o controlador
-            # oscila em volta do alvo e o envio vira serrote
+                    self.pausa = 0.0
+            # between LOW_WATER*target and the target the pause is unchanged (dead zone)
             self.ajustes += 1
         if self.pausa:
             self.pausa_total += self.pausa
@@ -117,7 +96,7 @@ async def send_throughput_data(throughput_channel, control_channel, PEER, test_s
         logger.info("%s: enviando %s pacotes de %s bytes", label, qtd_pacotes, len(package))
 
         pacer = _DelayPacer(PEER, label)
-        watch = _DrainWatch()                    # um por envio: o contador atravessa o laço
+        watch = _DrainWatch()
         for i in range(0, qtd_pacotes):
             if not safe_send(throughput_channel, package):
                 logger.warning("%s: canal de vazão fechou no pacote %s/%s. Abortando o envio.",
@@ -127,14 +106,7 @@ async def send_throughput_data(throughput_channel, control_channel, PEER, test_s
                 return False
             await pacer.step(i)
         logger.info("%s: %s", label, pacer.resumo())
-        # Enfileirar os 71428 pacotes NÃO é entregá-los. Em 2026-09-26 21:18 o laço
-        # terminou, a cauda (~1MB) travou no SCTP e o END_THROUGHPUT — enfileirado
-        # atrás dela na fila única do aiortc — nunca saiu: servidor e cliente
-        # esperando um ao outro por 42min, até o watchdog. O detector de taxa não viu
-        # nada porque só roda dentro do laço. Esperar a fila zerar com o MESMO
-        # detector faz o sinal sair numa fila vazia e derruba a rodada em uma janela
-        # se a cauda travar. É o que torna verdadeiro o "o remetente sempre sinaliza"
-        # que justifica as esperas sem cronômetro do outro lado.
+        # waits for the queue to empty before signaling the end: queued is not delivered
         throughput_channel.bufferedAmountLowThreshold = 0
         if not await _wait_buffer_drain(throughput_channel, 0, label, qtd_pacotes - 1,
                                         qtd_pacotes, watch):
@@ -146,42 +118,16 @@ async def send_throughput_data(throughput_channel, control_channel, PEER, test_s
         return False
 
 
+# counts buffer timeouts across calls and measures the delivery rate per window
 class _DrainWatch:
-    """Contador de timeouts do buffer que SOBREVIVE entre chamadas de _wait_buffer_drain.
-
-    Antes o contador nascia zerado a cada chamada, e o aborto exigia os 6 timeouts
-    dentro de UMA chamada. Em 2026-09-26 o link caiu pra ~200 B/s: a cada ~7s escoava
-    1 pacote, o buffer cruzava o limite, a função retornava True, o laço mandava 1
-    pacote e chamava de novo — contador zerado. Ficou 22 min logando "há 5s", nunca
-    "há 10s", avançando 1 pacote por aviso, até ser morto na mão. Um link gotejando
-    é indistinguível de um link morto pra medição, e tem que abortar como um.
-
-    Aqui só uma drenagem DE VERDADE — o evento bufferedamountlow chegando dentro do
-    prazo — zera o contador. Timeouts acumulam entre chamadas.
-
-    O contador NÃO basta: em 2026-09-26 19:18 o gotejo era de 1 pacote a cada ~10s,
-    o evento chegava dentro da janela seguinte de 5s e zerava o contador — 82 avisos
-    "há 5s", nunca 6 seguidos. Por isso a decisão de verdade é `taxa_abaixo_do_piso`:
-    bytes que avançaram na janela, independente de quando o evento chega.
-    """
     def __init__(self, clock=None):
         self.stalls = 0
-        self.clock = clock or _clock    # injetável: o teste avança o tempo sem dormir
-        self.t_ref = None               # âncora da janela: fixada na 1ª chamada, não aqui
+        self.clock = clock or _clock
+        self.t_ref = None
         self.bytes_ref = None
 
+    # (True, rate) if delivery within the window fell below the floor; otherwise (False, rate)
     def taxa_abaixo_do_piso(self, entregues):
-        """(True, taxa) se na janela o envio ficou abaixo do piso; senão (False, taxa).
-
-        `entregues` são os bytes que SAÍRAM da fila da aplicação (enfileirados menos
-        bufferedAmount) — não os enfileirados. É o que faz o mesmo detector servir
-        nas duas fases: no laço (enfileirado cresce, fila cheia) e na cauda (nada mais
-        é enfileirado, só a fila baixando). Gotejo é "entregues" parado, em qualquer uma.
-
-        Antes da janela fechar não opina — um teste de 100KB acaba em <1s e nunca
-        chega a decidir. Uma janela boa reancora, então o gotejo é medido sempre sobre
-        os últimos STALL_WINDOW_SECONDS, não desde o início do envio.
-        """
         agora = self.clock()
         if self.t_ref is None:
             self.t_ref, self.bytes_ref = agora, entregues
@@ -196,17 +142,9 @@ class _DrainWatch:
         return False, taxa
 
 
+# holds the send until the buffer drops back below the limit
 async def _wait_buffer_drain(throughput_channel, limite, label, pacote, qtd_pacotes, watch):
-    """Segura o envio até o buffer voltar abaixo do limite.
-
-    O código antigo esperava UMA vez e seguia enfileirando mesmo sem drenar. Com
-    100MB isso enche a fila do gargalo em segundos: o RTT passa dos 0,5s que o
-    consent freshness do ICE (RFC 7675) tolera, o aioice acumula 6 falhas e fecha
-    a conexão ~30s depois. Aqui a espera é um laço de verdade.
-    """
     while throughput_channel.bufferedAmount > limite:
-        # TAXA, não "drenou ou não": 1 pacote a cada 10s dispara o evento e zera o
-        # contador abaixo. Só a janela com piso pega um gotejo, seja qual for o ritmo.
         entregues = max(0, (pacote + 1) * BYTES_PER_PACKAGE - throughput_channel.bufferedAmount)
         travado, taxa = watch.taxa_abaixo_do_piso(entregues)
         if travado:
@@ -217,7 +155,7 @@ async def _wait_buffer_drain(throughput_channel, limite, label, pacote, qtd_paco
             return False
         state.events["throughput_buffer_drained"].clear()
         if throughput_channel.bufferedAmount <= limite:
-            return True  # drenou entre a checagem e o clear
+            return True  # drained between the check and the clear
         if await event_timeout(state.events["throughput_buffer_drained"], BUFFER_DRAIN_TIMEOUT):
             watch.stalls = 0
             continue
@@ -228,12 +166,7 @@ async def _wait_buffer_drain(throughput_channel, limite, label, pacote, qtd_paco
         if watch.stalls >= MAX_BUFFER_STALLS:
             logger.error("%s: buffer não drenou em %ss. SCTP travado: derrubando a rodada pra reparear.",
                          label, MAX_BUFFER_STALLS * BUFFER_DRAIN_TIMEOUT)
-            # Não adianta só abortar o envio e avisar o par: o aiortc tem UMA fila de
-            # saída pra todos os datachannels, e o SEND_ABORTED entraria atrás dos
-            # ~1MB de vazão travada — nunca sairia. Foi o deadlock de 2026-09-26:
-            # cliente e servidor esperando um ao outro por 45min. Um SCTP que não
-            # escoa um pacote em 30s é uma conexão morta; a saída é reparear com
-            # uma associação nova, e é isso que connection_lost faz o main() fazer.
+            # SEND_ABORTED would be stuck behind the stalled queue: the way out is to abort the round
             state.abort_round(f"SCTP travado no envio de {label}")
             return False
         if throughput_channel.readyState != "open":
@@ -241,15 +174,8 @@ async def _wait_buffer_drain(throughput_channel, limite, label, pacote, qtd_paco
     return True
 
 
+# ends a failed upload and notifies the peer, without waiting for confirmation
 def abort_upload(control_channel, test_size):
-    """Encerra um upload que falhou, sem esperar a confirmação que não vem.
-
-    O `send_throughput_data` já devolvia False quando desistia, mas os chamadores
-    ignoravam o retorno: o remetente ficava os `test_size / MIN_THROUGHPUT` segundos
-    inteiros (800s no 100MB) esperando o resultado do par, e o par ficava o mesmo
-    tanto esperando um END_THROUGHPUT que nunca tinha sido enviado. Em 2026-09-23 as
-    duas esperas juntas transformaram um envio travado aos 34% numa rodada de 40min.
-    """
     label = THROUGHPUT_LABELS[test_size]
     logger.warning("%s: meu envio falhou. Avisando o par e seguindo sem esperar os %ss.",
                    label, REPLY_TIMEOUT_SECONDS)
@@ -257,31 +183,13 @@ def abort_upload(control_channel, test_size):
     safe_send(control_channel, SEND_ABORTED)
 
 
+# download throughput in Mbps, or None when there is no interval to measure
 def _vazao_download_mbps(PEER, label):
-    """Vazão do download em Mbps, ou None quando não há intervalo pra medir.
-
-    O `-1` existe porque t0 é carimbado na chegada do PRIMEIRO pacote: o intervalo
-    cobre qtd_packages-1 pacotes. Com ZERO pacotes recebidos o numerador virava -1400
-    e a vazão saía NEGATIVA — `-22.8` e `-0.72 Mbps` no results.csv de 2026-10-04 — e
-    um número inválido atravessa qualquer média sem avisar, o que é pior que célula
-    vazia. Com 1 pacote dava 0.0, igualmente falso. E t0 ausente (nenhum pacote neste
-    teste, campo zerado no primeiro pacote do teste) levantava TypeError.
-    """
     pacotes = PEER["qtd_packages"]
     t0 = PEER["t0_throughput"]
-    # t1 é carimbado no handler do END_THROUGHPUT, na CHEGADA. Aqui pode ser muito
-    # depois: o cliente consome o evento só depois das 20 sondas de latência, que sob
-    # carga levam até 80s. Em 2026-09-26 isso deu 10MB_download de 0,48 Mbps para um
-    # download real de ~7 — o "tempo" incluía 40s de nada.
-    # monotônico aqui também, OBRIGATORIAMENTE: misturar com time.time() daria t0≈1e5
-    # contra t1≈1.8e9, ou seja "1,8 bilhão de segundos" de intervalo e vazão ~0,00 Mbps
-    # — erro silencioso, pior que o negativo que isto veio corrigir.
+    # t1 comes from the END_THROUGHPUT handler; t0 is the first packet's arrival (hence pacotes - 1)
     t1 = PEER["t1_throughput"] or time.monotonic()
     if pacotes < 2 or t0 is None or t1 <= t0:
-        # Os VALORES no aviso, não só o veredito: em 2026-10-04 este aviso saiu com
-        # 7142 pacotes (o 10MB inteiro) e não houve como saber se foi t0=None ou
-        # t1<=t0 — eu chutei "salto de relógio" e estava errado. Com os números a
-        # próxima ocorrência se decide lendo a linha.
         motivo = ("pacotes<2" if pacotes < 2 else
                   "t0 ausente" if t0 is None else "t1<=t0")
         logger.warning("%s: sem intervalo pra medir (%s). Download sem medida. "
@@ -292,22 +200,8 @@ def _vazao_download_mbps(PEER, label):
     return round((pacotes - 1) * BYTES_PER_PACKAGE / (t1 - t0) / 10 ** 6, 2) * 8
 
 
+# waits for the download to finish while watching the receive rate: ("recebido"|"abortado"|"travado", rate)
 async def _espera_download(PEER, throughput_finished, label):
-    """Espera o fim do download vigiando a taxa de RECEPÇÃO. Espelho do detector de envio.
-
-    Devolve ("recebido"|"abortado"|"travado", taxa_ou_None).
-
-    Esta espera era `timeout=None`, posta em 2026-09-25 com o raciocínio "o remetente
-    sempre sinaliza". Em 2026-10-03 o remetente sinalizou — e a entrega falhou: o
-    END_THROUGHPUT do servidor não chegou (associação SCTP travada nesse sentido) e o
-    cliente ficou 46min preso aqui, as duas máquinas vivas e heartbeatando. O erro foi
-    confundir "foi enviado" com "foi recebido".
-
-    Cronômetro fixo também não serve: o download legítimo do 100MB leva minutos e foi
-    justamente o que o antigo `test_size / MIN_THROUGHPUT` (800s) errava nos dois
-    sentidos. O que decide é o mesmo critério do lado de quem envia — bytes por janela:
-    chegando dados, espera o quanto precisar; parado, o remetente travou.
-    """
     eventos = {"recebido": throughput_finished, "abortado": state.events["send_aborted"]}
     recebidos_ref = PEER["qtd_packages"]
     while True:
@@ -322,31 +216,23 @@ async def _espera_download(PEER, throughput_finished, label):
 
 
 async def calculate_throughput(role, PEER, throughput_finished):
-    total_bytes_esperada = PEER[
-        "qtd_total_bytes"]  ## ex.: teria o BYTES_THROUGHPUT_10MB como o valor dessa chave tam_bytes_test
-    label = THROUGHPUT_LABELS[total_bytes_esperada]  
+    total_bytes_esperada = PEER["qtd_total_bytes"]
+    label = THROUGHPUT_LABELS[total_bytes_esperada]
     canal = state.server["channels"][CONTROL] if role == "server" else state.client["control_channel"]
-    # Sem cronômetro fixo: quem decide é a taxa de recepção (ver _espera_download).
-    # Nada de `test_size / MIN_THROUGHPUT` aqui — em 2026-09-25 esse prazo venceu
-    # enquanto o cliente ainda subia, o servidor começou o próprio upload em cima do
-    # dele, os dois floods travaram o caminho e o consent expirou dos dois lados.
+    # no fixed timer: the receive rate decides
     response, taxa = await _espera_download(PEER, throughput_finished, label)
     if response == "recebido":
-        # Perda SOB CARGA, de graça: o receptor já tem as duas pontas. A coluna
-        # `package_loss` mede com o enlace ocioso (~300 kbps) e está certa — o iperf3
-        # mediu 0/782 nessa taxa em 2026-10-07, igual à ferramenta. Mas o teste de
-        # vazão opera perto da saturação, e lá o mesmo iperf mediu 6,5% a 18%. É este
-        # regime que explica o travamento do 100MB, e agora ele fica medido por tamanho.
+        # loss under load: expected packets minus received ones
         esperados = PEER["qtd_total_bytes"] // BYTES_PER_PACKAGE
         if esperados > 0:
-            perdidos = max(0, esperados - PEER["qtd_packages"])   # nunca negativa
+            perdidos = max(0, esperados - PEER["qtd_packages"])
             state.results[f"{label}_package_loss"] = round(perdidos / esperados * 100, 2)
         vazao_em_Mbps = _vazao_download_mbps(PEER, label)
-        state.results[f"{label}_download"] = vazao_em_Mbps  # It's here when the tests finish
+        state.results[f"{label}_download"] = vazao_em_Mbps
         if role != "server":
             logger.debug("Resultados do cliente: %s", state.results)
         if vazao_em_Mbps is None:
-            # o par fica com upload=None em vez de receber um número inválido
+            # the peer gets upload=None instead of an invalid number
             safe_send(canal, UPLOAD_ERROR)
         else:
             safe_send(canal, json.dumps({
@@ -355,28 +241,22 @@ async def calculate_throughput(role, PEER, throughput_finished):
                 "test_size": total_bytes_esperada
             }))
     elif response == "travado":
-        # Só este caso derruba a rodada: nada chegou numa janela inteira, o remetente
-        # está vivo mas a associação não entrega. Não dá pra seguir pro upload do
-        # servidor num caminho morto — seria enfileirar dados que ninguém recebe.
+        # nothing arrived in a whole window: the association is not delivering, so the round is aborted
         logger.error("%s: recebi %.0f B/s nos últimos %ss, abaixo do piso de %.0f B/s. "
                      "Remetente travado: derrubando a rodada pra reparear.",
                      label, taxa, STALL_WINDOW_SECONDS, STALL_FLOOR_BytePerSec)
         state.results[f"{label}_download"] = None
-        state.results[f"{label}_package_loss"] = None   # sem download, sem perda medida
+        state.results[f"{label}_package_loss"] = None
         state.abort_round(f"remetente travado no download de {label}")
         return
     else:
-        # o par desistiu de enviar (SEND_ABORTED): sem medida, mas a conexão está boa
-        # e o upload DELE ainda vem — a rodada continua
+        # the peer gave up sending (SEND_ABORTED): the round goes on
         logger.warning("%s: o par desistiu do envio. Download sem medida.", label)
         state.results[f"{label}_download"] = None
-        state.results[f"{label}_package_loss"] = None   # sem download, sem perda medida
+        state.results[f"{label}_package_loss"] = None
         safe_send(canal, UPLOAD_ERROR)
 
-    # a subida do servidor NÃO depende da descida ter dado certo: são direções
-    # independentes. Antes isto ficava dentro do `if`, então uma falha na descida
-    # cancelava a subida — foi por isso que o 100MB_upload do servidor ficou vazio em
-    # 2026-09-23 e o cliente ainda esperou 1600s por dados que nunca viriam.
+    # the server upload does not depend on the download having succeeded
     if role == "server":
         await start_server_upload_timeout()
         await calculate_server_upload(state.server["qtd_total_bytes"])
@@ -388,11 +268,11 @@ async def calculate_server_upload(test_size):
                                                      test_size)
     if not enviou:
         abort_upload(controle, test_size)
-        # o END_TEST é o que destrava o cliente: sem ele, ele espera mais 800s
+        # END_TEST unblocks the client
         safe_send(controle, END_TEST)
         return
-            ## a task abaixo irá aguardar o evento upload_received ou upload_error
-    await send_end_test(controle, REPLY_TIMEOUT_SECONDS, test_size)   # resposta, não transferência
+    # waits for the upload_received or upload_error event
+    await send_end_test(controle, REPLY_TIMEOUT_SECONDS, test_size)
 
 
 async def start_server_upload_timeout():
@@ -417,7 +297,7 @@ async def send_ack_end_upload(control_channel, timeout, test_size):
         if state.results[f"{label}_upload"] is not None:
             state.results[f"{label}_upload"] = None
         if state.role == "client":
-            safe_send(control_channel, UPLOAD_RECEIVED)  # vou enviar mesmo que tenha dado errado pra que o teste continue
+            safe_send(control_channel, UPLOAD_RECEIVED)  # sent even on error so the test can continue
         else:
             safe_send(control_channel, UPLOAD_ERROR)
 
@@ -431,9 +311,4 @@ async def send_end_test(control_channel, timeout, test_size):
         logger.warning("%s: fim do teste sem confirmação de upload (%s).", label, response)
     if response == "upload_error" and state.results[f"{label}_upload"] is not None:
         state.results[f"{label}_upload"] = None
-    safe_send(control_channel, END_TEST)  # somente aqui eu envio o fim do teste, quando da certo ou quando da errado
-
-
-
-# alguma das mensagens (tem alguma) de fim que estou mandando, eu nao estou mandando assim que termina o teste
-# de upload. Estou mandando quando termina todos os testes de vazão
+    safe_send(control_channel, END_TEST)

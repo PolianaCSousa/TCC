@@ -11,30 +11,22 @@ SHELL ["/bin/bash","-c"]
 RUN apt-get update
 RUN apt-get install -y --no-install-recommends \
     git wget curl 
-    #python3 python3-venv python3-pip 
 
     
-# requirements primeiro: só reinstala as libs quando esse arquivo muda,
-# não a cada alteração no .py
+# requirements before the code: makes use of the layer cache
 COPY requirements.txt /app
 RUN cd /app && python3 -m venv venv && source venv/bin/activate
-# Só se o `pip install` falhar compilando o `aiortc`:** normalmente ele instala por wheel pré-compilado e nada abaixo é necessário. Se der erro de compilação, instale as libs de mídia e tente de novo:
-#RUN apt install -y --no-install-recommends build-essential python3-dev pkg-config libavdevice-dev libavfilter-dev libopus-dev libvpx-dev libsrtp2-dev
 RUN pip install --upgrade pip ; pip install --no-cache-dir -r requirements.txt
     
-# Imagem multi-arquitetura: o buildx preenche TARGETARCH com amd64 ou arm64
-# (Raspberry Pi) conforme a plataforma sendo construída. O kubo usa esses mesmos
-# nomes; o speedtest chama de x86_64 e aarch64.
+# buildx sets TARGETARCH to amd64 or arm64
 ARG TARGETARCH
 
-#RUN wget https://dist.ipfs.tech/kubo/v0.43.0/kubo_v0.43.0_linux-amd64.tar.gz && \
 RUN wget https://github.com/ipfs/kubo/releases/download/v0.43.0/kubo_v0.43.0_linux-${TARGETARCH}.tar.gz
 RUN tar -xvzf kubo_v0.43.0_linux-${TARGETARCH}.tar.gz && \
     cd kubo && sh install.sh && cd ..  && \
     ipfs --version
 
-# Speedtest CLI oficial da Ookla: referência de comparação, rodado entre as rodadas
-# (speedtest_runner.py). Binário estático, não precisa de repositório apt.
+# Ookla Speedtest CLI: comparison baseline
 RUN case "${TARGETARCH}" in \
         amd64) SPEEDTEST_ARCH=x86_64 ;; \
         arm64) SPEEDTEST_ARCH=aarch64 ;; \
@@ -47,21 +39,13 @@ RUN case "${TARGETARCH}" in \
 
 RUN git clone -b speedtest-cli https://github.com/PolianaCSousa/TCC.git /TCC
 RUN mv /TCC/* /app
-# RUN cd /app && python3 -m venv venv && source venv/bin/activate
-# RUN pip install --no-cache-dir -r requirements.txt
 
 RUN chmod +x /app/entrypoint.sh
 
 RUN mkdir -p /data
 
-# storage.py grava results.csv e logs/ em caminho relativo, então o CWD precisa
-# ser o volume montado. O código continua em /app: como o peer.py está lá, o
-# Python resolve os imports a partir de /app mesmo com o CWD em /data.
+# CWD on the volume: results.csv and logs/ are written to relative paths
 WORKDIR /data
 
 COPY .env /app
-# The script handles launching the background service
 ENTRYPOINT ["/app/entrypoint.sh"] 
-
-#atualmente o estado atual é: instalar o ipfs dentro do proprio container do peer. Removemos o serviço
-#do ipfs do docker-compose, mas pode ser que alguma coisa esteja faltando. Verificar.

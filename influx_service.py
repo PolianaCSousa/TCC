@@ -15,24 +15,24 @@ class InfluxService:
         )
         self.write_client = self.client.write_api(write_options=SYNCHRONOUS)
 
-    def write_data(self, tags : dict, fields : dict, measurement : str | None = None): #preciso passar measurements, tags e fields
+    def write_data(self, tags : dict, fields : dict, measurement : str | None = None):
         point = Point(measurement or config.INFLUXDB_MEASUREMENT)
 
-        #add tags - tag é sempre string no influx
+        # tags are always strings in influx
         for key, value in tags.items():
             if value is None:
                 continue
             point.tag(key, str(value))
 
-        #add fields - float em todos pra não dar conflito de tipo quando a métrica vem inteira (ex: package_loss = 0)
+        # every field as float to avoid type conflicts
         written_fields = 0
         for key, value in fields.items():
-            if value is None:  # métrica que não foi medida nessa rodada não vai pro banco
+            if value is None:  # unmeasured metrics are not written
                 continue
             point.field(key, float(value))
             written_fields += 1
 
-        if written_fields == 0:  # ponto sem field nenhum é rejeitado pelo influx
+        if written_fields == 0:  # influx rejects a point with no fields
             logger.warning("Nenhum field preenchido, nada foi escrito no InfluxDB.")
             return
 

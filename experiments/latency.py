@@ -11,32 +11,26 @@ logger = logging.getLogger(__name__)
 async def server_send_lat_ack(latency_channel):
     state.server[state.t0_latency_key()].append(time.monotonic_ns())
     safe_send(latency_channel, LAT_ACK)
-    #logger.info(">>> enviei LAT_ACK")
 # endregion
 
 
 async def client_send_lat_package(latency_channel):
     state.client[state.t0_latency_key()].append(time.monotonic_ns())
     safe_send(latency_channel, LAT)
-    #logger.info(">>> enviei LAT")
 
 
 async def client_send_ack(latency_channel):
     safe_send(latency_channel, ACK)
-    #logger.info(">>> enviei ACK")
 
 async def handle_server_latency_timeout(control_channel, timeout):
-    # event_ocurred = await event_timeout
     response = await events_timeout({"ack_received": state.events["ack_received"],
                                      "lat_ack_error": state.events["lat_ack_error"]
                                      }, timeout)
     if response != "ack_received":
         t0 = state.server[state.t0_latency_key()]
         t1 = state.server[state.t1_latency_key()]
-        if len(t1) < len(t0):          # só anexa None se estou devendo um t1 nesta iteração
+        if len(t1) < len(t0):  # appends None only if this iteration is missing a t1
             t1.append(None)
-            # este é o send que estourava InvalidStateError: a corrotina fica presa aqui
-            # por até `timeout` segundos e acorda depois da conexão já ter fechado
             safe_send(control_channel, END_ITERATION)
 
 def calc_latency(all_measures, result_key, test_size):
@@ -44,11 +38,7 @@ def calc_latency(all_measures, result_key, test_size):
     latency_col = LATENCY if result_key == LATENCY else f"{THROUGHPUT_LABELS[test_size]}_loaded_latency"
     jitter_col = "jitter" if result_key == LATENCY else f"{THROUGHPUT_LABELS[test_size]}_loaded_jitter"
 
-    # Medida <= 0 é par desalinhado, não latência: com monotonic_ns() o tempo não
-    # volta atrás, então t1 - t0 negativo só sai quando o pareamento por índice
-    # (t1[i] - t0[i]) escorrega e casa um t1 antigo com um t0 mais novo. Em
-    # 2026-10-07 isso deu -115,83ms e -28,32ms em 10MB_loaded_latency. Descartar o
-    # par é o certo: uma média que inclui número impossível contamina em silêncio.
+    # a measure <= 0 means a misaligned t0/t1 pair: it is discarded
     descartadas = [m for m in all_measures if m <= 0]
     if descartadas:
         logger.warning("%s: %s de %s medida(s) descartada(s) por par desalinhado "
@@ -56,7 +46,7 @@ def calc_latency(all_measures, result_key, test_size):
         all_measures = [m for m in all_measures if m > 0]
 
     if len(all_measures) > 0:
-        latency = round(mean(all_measures) / 10**6, 2) #10**6 #converte de ns para ms
+        latency = round(mean(all_measures) / 10**6, 2) # ns -> ms
         jitter = round(pstdev(all_measures) / 10**6, 2)
         state.results[latency_col] = latency
         state.results[jitter_col] = jitter

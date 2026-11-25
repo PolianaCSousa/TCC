@@ -8,7 +8,5 @@ python-socketio==5.16.1
 requests==2.34.2
 ipwhois==1.3.0
 
-# dependência do aiortc, fixada de propósito: as versões 14.3 e 14.4 do av não
-# publicaram pacote pronto no PyPI, e o pip tentaria compilar do zero — o que
-# exige ffmpeg 7 e compilador C, ausentes na imagem.
+# aiortc dependency, pinned to a version with a wheel on PyPI (avoids compiling in the image)
 av==16.1.0

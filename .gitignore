@@ -1,21 +1,17 @@
-# Ambiente virtual (recriar em cada máquina com python3 -m venv venv)
+# Virtual environment
 venv/
 
-# Cache do Python
+# Python cache
 __pycache__/
 *.py[cod]
 
-# Resultados dos testes (gerados localmente). O padrão cobre o results.csv ativo,
-# os históricos renomeados (history_results.csv) e as rotações que o storage.py cria
-# quando as colunas mudam (results_AAAAMMDD-HHMMSS.csv).
+# Test results (generated locally)
 *results*.csv
 
-# Logs por peer (gerados localmente)
+# Per-peer logs (generated locally)
 logs/
 
-# Logs copiados da outra máquina pra análise. A extensão .py é só pra o editor
-# abrir sem reclamar — não é código, e não pode ir pra imagem (o Dockerfile copia
-# o repo inteiro).
+# Logs copied from another machine for analysis
 log_maquina_*.py
 
 # IDE

@@ -15,30 +15,30 @@ from isp import(
 
 logger = logging.getLogger(__name__)
 
-HEARTBEAT_INTERVAL = 2  # segundos entre cada announce
-PEER_TIMEOUT = HEARTBEAT_INTERVAL * 3 # se tiver passado 6 segundos e o par nao tiver feito anúncio, considero que ele saiu
-PAIR_TIMEOUT = 5 # segundos esperando o pair_accept antes de desistir
+HEARTBEAT_INTERVAL = 2  # seconds between announces
+PEER_TIMEOUT = HEARTBEAT_INTERVAL * 3 # with no announce within this interval, the peer is considered gone
+PAIR_TIMEOUT = 5 # seconds waiting for pair_accept before giving up
 
 
 class IpfsSignaling:
 
     def __init__(self, client, topic):
-        self.kubo_client = client          # instancia de KuboClient
+        self.kubo_client = client
         self.topic = topic
-        self.my_id = None             # meu PeerID (legivel), preenchido no start()
-        self.my_asn = None          # busca o ASN do ISP do peer
+        self.my_id = None             # PeerID, set in start()
+        self.my_asn = None          # ASN of this peer's ISP
         self.peers = {}             # peer_id -> {"status", "asn", "last_seen"}
         self.status = FREE          # free -> pairing -> paired
-        self.partner = None           # PeerID do parceiro
-        self.role = None              # 'client' ou 'server'
+        self.partner = None           # partner's PeerID
+        self.role = None              # 'client' or 'server'
         self._handlers = {}           # kind -> async handler(data)
-        self.paired = asyncio.Event() # sinaliza quando o par foi definido
+        self.paired = asyncio.Event() # set once the pair is defined
         self._tasks = []
 
-    # --- API publica ---------------------------------------------------------
+    # --- Public API ----------------------------------------------------------
 
+    # registers an async handler for a message type (e.g. 'offer')
     def on(self, kind, handler):
-        """Registra um handler async pra um tipo de mensagem (ex.: 'offer')."""
         self._handlers[kind] = handler
 
 
@@ -50,8 +50,8 @@ class IpfsSignaling:
         self._tasks.append(asyncio.create_task(self._cleaner()))
 
 
+    # sends an addressed message (e.g. offer/answer) to the partner
     async def send(self, kind, to, extra):
-        """Envia uma mensagem enderecada (ex.: offer/answer) ao parceiro."""
         payload = {"kind": kind, "to": to}
         payload.update(extra)
         await self._publish(payload)
@@ -61,10 +61,10 @@ class IpfsSignaling:
         for task in self._tasks:
             task.cancel()
 
-    # --- Loops internos ------------------------------------------------------
+    # --- Internal loops ------------------------------------------------------
 
     async def _heartbeat(self):
-        # anuncia SEMPRE, com o status atual (não para ao sair de FREE)
+        # always announces, with the current status
         while True:
             await self._publish({"kind": "announce", "status": self.status, "asn": self.my_asn})
             await asyncio.sleep(HEARTBEAT_INTERVAL)
@@ -72,15 +72,11 @@ class IpfsSignaling:
 
     async def _consume(self):
         async for message in self.kubo_client.pubsub_sub(self.topic):
-            # Uma exceção aqui dentro sairia pelo `async for` e mataria esta task — em
-            # silêncio, porque self._tasks segura a referência e o asyncio nunca
-            # reporta. O peer ficaria surdo a todo pubsub até reiniciar. É um dos
-            # candidatos pra oferta sem resposta de 2026-09-26. Só o cancelamento
-            # (CancelledError, que não é Exception) atravessa.
+            # an exception here would silently kill the consumer task
             try:
                 data = json.loads(message["data"])
                 if data.get("from") == self.my_id:
-                    continue  # ignora o proprio eco
+                    continue  # ignores its own echo
                 await self._dispatch(data)
             except Exception:
                 logger.exception("handler de sinalização estourou; ignorando a mensagem e seguindo")
@@ -100,7 +96,7 @@ class IpfsSignaling:
             await self._handlers[kind](data)
 
 
-    async def _cleaner(self): #remove da lista local pares que se desconectaram
+    async def _cleaner(self): # removes disconnected peers from the local list
         while True:
             await asyncio.sleep(PEER_TIMEOUT)
             now = time.monotonic()
@@ -119,7 +115,7 @@ class IpfsSignaling:
 
     async def _on_announce(self, data):
         other_peer_id = data["from"]
-        # só a primeira vez (ou a volta depois de sumir): o announce chega a cada 2s
+        # logs only when the peer first appears (announces arrive every 2s)
         if other_peer_id not in self.peers:
             logger.info("par %s visto no tópico (status=%s, asn=%s)",
                         other_peer_id, data.get("status"), data.get("asn"))
@@ -155,7 +151,7 @@ class IpfsSignaling:
         candidates = other_asn or same_asn
         if not candidates:
             return None
-        return min(candidates) # retorna o candidato de menor peerID
+        return min(candidates)
 
 
     async def _on_pair_request(self, data):
@@ -187,7 +183,7 @@ class IpfsSignaling:
             return
         if data["from"] != self.partner:
             return
-        self._reset_to_free()   # recusado → volto a livre; o próximo announce me faz reescolher
+        self._reset_to_free()
 
 
     def _reset_to_free(self):
@@ -197,14 +193,13 @@ class IpfsSignaling:
 
 
     def reset_for_new_round(self):
-        # volta ao estado de uma nova rodada: livre, sem par, pronto pra reparear
         self._reset_to_free()
         self.paired.clear()
 
 
     async def _pair_timeout(self, expected_partner):
         await asyncio.sleep(PAIR_TIMEOUT)
-        # se ainda espero o MESMO alvo, desisto e volto a livre
+        # if still waiting for the same peer, give up and go back to free
         if self.status == PAIRING and self.partner == expected_partner:
             logger.warning("%s não respondeu o pedido de pareamento em %ss", expected_partner, PAIR_TIMEOUT)
             self._reset_to_free()

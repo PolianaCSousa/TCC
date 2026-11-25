@@ -18,36 +18,13 @@ GOOGLE_STUN = RTCIceServer(urls="stun:stun.l.google.com:19302")
 
 logger = logging.getLogger(__name__)
 
-# folga sobre a janela mínima, pra absorver variação de RTT e o tempo entre fases
+# margin over the minimum window
 _CONSENT_MARGEM = 1.25
 
 
+# relaxes ICE consent freshness (RFC 7675), which would expire while the test saturates the link
 def relax_ice_consent():
-    """Afrouxa o consent freshness do ICE (RFC 7675) para a duração do experimento.
-
-    O aioice manda um STUN binding request a cada 5s, com `retransmissions=0` — ou
-    seja, 0,5s de prazo pra resposta — e fecha a conexão após 6 falhas seguidas.
-    São ~30s de tolerância.
-
-    O problema é que esses 0,5s são medidos na MESMA fila onde o teste de vazão
-    está despejando dados. Saturar o link é o objetivo do teste, e a fila do
-    gargalo inflada leva o RTT muito acima disso: em 2026-09-22 a loaded_latency
-    medida chegou a 1024ms no teste de 100MB e 862ms no de 10MB, contra os 500ms
-    de prazo. Resultado: o teste derrubava a própria conexão, e ~50% das rodadas
-    morriam no meio.
-
-    Afrouxar aqui não distorce medição nenhuma: o tráfego enviado continua
-    idêntico, muda só o supervisor. E o supervisor está errado neste contexto — o
-    consent freshness existe pra impedir que um endpoint seja usado pra inundar um
-    terceiro que não quer o tráfego. Aqui as duas pontas são nossas e ambas querem
-    os dados; o par nunca esteve ausente, só com a fila cheia por construção.
-
-    A detecção de par realmente morto não se perde: continua nos timeouts de cada
-    teste e no ROUND_WATCHDOG_SECONDS. Por isso a janela fica deliberadamente
-    abaixo do watchdog — o ICE ainda percebe a queda, só que depois do experimento.
-    """
-    # pior caso que a própria ferramenta assume: 50MB no link mais lento que ela
-    # espera atender. É o mesmo número que alimenta os timeouts em peer.py.
+    # worst case: 50MB over the slowest link the tool assumes
     janela = (BYTES_THROUGHPUT_50MB / MIN_THROUGHPUT_BytePerSec) * _CONSENT_MARGEM
     aioice_ice.CONSENT_FAILURES = math.ceil(janela / aioice_ice.CONSENT_INTERVAL)
     logger.info(
@@ -58,7 +35,5 @@ def relax_ice_consent():
     )
 
 def get_connection_configuration():
-    # só o STUN público do Google: o TURN da metered.ca saiu em 2026-10-22 (credencial
-    # vencida, sem renovação). Sem relay, par atrás de NAT restritivo não conecta — o
-    # ICE falha e o peer repareia, sem derrubar a ferramenta.
+    # public STUN only: without TURN, a peer behind a restrictive NAT cannot connect
     return [GOOGLE_STUN]

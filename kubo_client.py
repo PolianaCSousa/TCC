@@ -42,8 +42,7 @@ class KuboClient:
     async def pubsub_sub(self, topic):
         encoded_topic = self.encode_topic(topic)
         params = { "arg": encoded_topic }
-            # o timeout padrao do aiohttp e total=300s, o que mataria esse stream aos
-        # 5 minutos: a inscricao precisa ficar aberta indefinidamente.
+        # no total timeout: the subscription must stay open indefinitely
         async with self.session.post(
             self.api_url + "/api/v0/pubsub/sub",
             params=params,
@@ -59,15 +58,10 @@ class KuboClient:
     
 
 
-    # --- swarm / DHT (usados pelo swarm_connector) ---------------------------
+    # --- swarm / DHT (used by swarm_connector) -------------------------------
 
+    # stores a block and returns its CID; fixed parameters so the CID is the same on every peer
     async def add_bytes(self, data):
-        """Grava um bloco no blockstore local e devolve o CID.
-
-        Os parâmetros são fixos de propósito: o CID precisa sair idêntico em
-        todos os peers a partir do mesmo conteúdo, independentemente de como
-        cada voluntário configurou o Kubo dele.
-        """
         params = {
             "cid-version": "1",
             "raw-leaves": "true",
@@ -85,13 +79,8 @@ class KuboClient:
             self._raise_if_error(payload, "add")
             return payload["Hash"]
 
+    # announces on the DHT that this peer has this CID
     async def routing_provide(self, cid):
-        """Anuncia na DHT que este peer tem esse CID.
-
-        Exige o bloco no blockstore local — sem isso o Kubo recusa. E ele
-        enfileira o trabalho e responde na hora: o registro leva mais alguns
-        segundos até chegar aos nós da DHT.
-        """
         async with self.session.post(
             self.api_url + "/api/v0/routing/provide", params={"arg": cid}
         ) as response:
@@ -101,12 +90,8 @@ class KuboClient:
                 if linha:
                     self._raise_if_error(json.loads(linha), "routing/provide")
 
+    # asks the DHT who announced this CID; returns the raw stream lines
     async def routing_findprovs(self, cid, num_providers, timeout):
-        """Pergunta à DHT quem anunciou esse CID; devolve as linhas cruas do stream.
-
-        A busca pode varrer a DHT por muito tempo quando não há o que achar, então
-        o timeout não é erro: é o ponto de desistir e usar o que já chegou.
-        """
         linhas = []
         try:
             await asyncio.wait_for(
@@ -126,14 +111,8 @@ class KuboClient:
             async for line in response.content:
                 linhas.append(line.decode("utf-8", errors="replace"))
 
+    # dials the peer at the given addresses; returns True if the connection came up
     async def swarm_connect(self, peer_id, addrs, timeout):
-        """Disca no peer pelos endereços dados; devolve True se a conexão subiu.
-
-        Passar os endereços importa: com `/p2p/<id>` puro o Kubo escolhe sozinho e
-        costuma acomodar num circuit relay, que é conexão limitada e não carrega o
-        gossipsub. Sem endereço direto conhecido, o relay é melhor que nada — o
-        DCUtR ainda pode promover a conexão a direta depois.
-        """
         if addrs:
             alvos = [f"{addr}/p2p/{peer_id}" for addr in addrs]
         else:
@@ -153,12 +132,8 @@ class KuboClient:
             logger.debug("swarm/connect %s falhou: %s", peer_id, erro)
             return False
 
+    # open libp2p connections: PeerID -> addresses it is connected through
     async def swarm_peers(self):
-        """Conexões libp2p abertas agora: PeerID -> endereços por onde ele está ligado.
-
-        Os endereços importam porque conexão via relay não vale como pareamento,
-        e sem eles não dá pra distinguir uma da outra.
-        """
         async with self.session.post(self.api_url + "/api/v0/swarm/peers") as response:
             payload = json.loads(await response.text())
             self._raise_if_error(payload, "swarm/peers")
@@ -167,9 +142,8 @@ class KuboClient:
                 conexoes.setdefault(p["Peer"], []).append(p["Addr"])
             return conexoes
 
+    # peers that gossipsub sees in this topic
     async def pubsub_peers(self, topic):
-        """Peers que o gossipsub enxerga NESTE tópico — o sinal de que o
-        pareamento tem com quem acontecer."""
         params = {"arg": self.encode_topic(topic)}
         async with self.session.post(
             self.api_url + "/api/v0/pubsub/peers", params=params
@@ -178,9 +152,8 @@ class KuboClient:
             self._raise_if_error(payload, "pubsub/peers")
             return payload.get("Strings") or []
 
+    # the Kubo API replies 200 and puts the error in the body: checking the HTTP status is not enough
     def _raise_if_error(self, payload, endpoint):
-        """A API do Kubo responde 200 e põe o erro no corpo nesses endpoints,
-        então checar o status HTTP não basta."""
         if isinstance(payload, dict) and payload.get("Type") == "error":
             raise RuntimeError(f'{endpoint} falhou: {payload.get("Message")}')
 
