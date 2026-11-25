@@ -7,24 +7,20 @@ from constants import (
     FREE, OCCUPIED
 )
 
-#create a Socket.IO server
 sio = socketio.AsyncServer()
-app = web.Application() #create a server (application) with aiohttp
+app = web.Application()
 
-#A server configured for Aiohttp must be attached to an existing application:
 sio.attach(app)
 
-#typing for peers list structure
 class Peer(TypedDict):
     role: str | None
     target: str | None
     status: str | None
     sid: str | None
 
-peers: list[Peer] = [] #key: username value: sid (sessionID or socketID)
+peers: list[Peer] = []
 
 
-#the sid is passed automatically through the socket.io when a client connects to the server - PAREI AQUI
 @sio.event
 async def connect(sid, environ, auth):
     peers.append({
@@ -55,9 +51,9 @@ async def matchmaking(sid):
             list_peer = peer
             oferer_peer = find_peer(sid)
             if oferer_peer["sid"] < list_peer["sid"]:
-                #the first parameter is the client peer
+                # the first parameter is the client peer
                 set_role_and_target(oferer_peer,list_peer)
-                await sio.emit("role_defined", {"peer": list_peer, "role": 'server'}, to=list_peer["sid"]) #emit for server peer first
+                await sio.emit("role_defined", {"peer": list_peer, "role": 'server'}, to=list_peer["sid"])
                 await sio.emit("role_defined", {"peer": oferer_peer, "role": 'client'}, to=oferer_peer["sid"])
             else:
                 set_role_and_target(list_peer,oferer_peer)
@@ -66,7 +62,6 @@ async def matchmaking(sid):
     print(f'Lista do servidor: {peers}')
 
 
-#foward the offer
 @sio.event
 async def offer(sid,data):
     sdp = data["offer"]
@@ -75,19 +70,16 @@ async def offer(sid,data):
     if target_sid:
         await sio.emit("offer",{"from": sid,"offer": sdp}, to=target_sid)
 
-#foward the answer
 @sio.event
 async def answer(sid,data):
     print('debug - processamento do answer do peer2')
     sdp = data["answer"]
     target_sid = data["to"]
-    #target_sid = peers.get(target) - eu ja estou recebendo o sid do peer1
     print('target_sid: ', target_sid)
     print(f'debug - sdp do answer: \n{sdp}')
     if target_sid:
         await sio.emit("answer",{"from": sid, "answer": sdp}, to=target_sid)
 
-#foward the ICE candidate to the peer
 @sio.event
 async def candidate(sid, data):
     target = data["to"]
@@ -110,7 +102,6 @@ def set_role_and_target(client, server):
     server["target"] = client["sid"]
     server["status"] = OCCUPIED
 
-# Run the aiohttp server manually with a specific host and port
 if __name__ == "__main__":
 
     print("Iniciando influx")
@@ -130,4 +121,3 @@ if __name__ == "__main__":
     web.run_app(app, host="0.0.0.0", port=5000)
 
     print("Depois do run_app")
-

@@ -1,6 +1,26 @@
 import asyncio
 import json
+import logging
+from aiortc.exceptions import InvalidStateError
 from state import state
+from constants import PAIRING_TIMEOUT_SECONDS, ROUND_WATCHDOG_SECONDS
+
+logger = logging.getLogger(__name__)
+
+
+# sends only if the channel is still open; returns whether the send happened
+def safe_send(channel, data) -> bool:
+    if channel is None or channel.readyState != "open":
+        logger.debug("send ignorado: canal %s", getattr(channel, "readyState", "inexistente"))
+        return False
+    try:
+        channel.send(data)
+        return True
+    except InvalidStateError:
+        # race: the channel closed between the readyState check and the send
+        logger.debug("send ignorado: canal fechou durante o envio")
+        return False
+
 
 def try_parse_json(message):
     try:
@@ -17,6 +37,30 @@ async def event_timeout(event, timeout):
         return False
     
     
+# sends `total` packets in batches of `batch`, with `pause` between them; returns how many were sent
+async def send_paced(channel, package, total, batch, pause):
+    enviados = 0
+    for i in range(total):
+        if not safe_send(channel, package):
+            break
+        enviados += 1
+        if (i + 1) % batch == 0:
+            await asyncio.sleep(pause)
+    return enviados
+
+
+# waits for the round to end: short deadline until connected, watchdog afterwards
+async def wait_round_outcome():
+    eventos = {
+        "round_done": state.events["round_done"],
+        "connection_lost": state.events["connection_lost"],
+    }
+    outcome = await events_timeout(eventos, PAIRING_TIMEOUT_SECONDS)
+    if outcome != "timeout" or not state.round_active:
+        return outcome
+    return await events_timeout(eventos, ROUND_WATCHDOG_SECONDS)
+
+
 async def events_timeout(events: dict[str, asyncio.Event], timeout: float | None = None):
     tasks = {}
     for name, event in events.items():
@@ -34,7 +78,7 @@ async def events_timeout(events: dict[str, asyncio.Event], timeout: float | None
             events[name].clear()
 
             for p in pending:
-                p.cancel()  # confirmar na documentação se o cancel mata a task imediatamente ou se ela demora um pouco e continua rodando até que ela perceba que foi cancelada
+                p.cancel()
 
             return name
 

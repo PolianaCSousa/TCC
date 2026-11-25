@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.py[cod]
+.git/
+.idea/
+logs/
+data/
+results.csv
+docker-compose.yml

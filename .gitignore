@@ -1,18 +1,18 @@
-# Ambiente virtual (recriar em cada máquina com python3 -m venv venv)
+# Virtual environment
 venv/
 
-# Cache do Python
+# Python cache
 __pycache__/
 *.py[cod]
 
-# Resultados dos testes (gerados localmente)
-results.csv
+# Test results (generated locally)
+*results*.csv
 
-# Logs por peer (gerados localmente)
+# Per-peer logs (generated locally)
 logs/
 
-# Variáveis de ambiente / segredos
-.env
+# Logs copied from another machine for analysis
+log_maquina_*.py
 
 # IDE
 .idea/

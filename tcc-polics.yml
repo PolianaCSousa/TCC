@@ -1,0 +1,81 @@
+# docker compose -f tcc-polics.yml up
+
+name: tcc-p2p
+services:
+
+  influxdb:
+    image: influxdb:2.9.1
+    restart: unless-stopped
+    environment:
+      # read only on the first start, with an empty volume
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: "poliana"
+      DOCKER_INFLUXDB_INIT_PASSWORD: "speedtest123"   # minimum 8 characters
+      DOCKER_INFLUXDB_INIT_ORG: "tcc"
+      DOCKER_INFLUXDB_INIT_BUCKET: "internet_metrics"
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: "1bRD2iO0ODRNE5dfxHPqnaIoMU_bUx2wupydrs6f4_dZBzXS-lfjwDKT6eobG-8R6KnzbY0LHS7J3bGUDZXH5g=="
+    volumes:
+      - influx-data:/var/lib/influxdb2
+      - influx-config:/etc/influxdb2
+    ports:
+      - "127.0.0.1:8086:8086"
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      retries: 10
+
+  grafana:
+    image: grafana/grafana:13.1.2-ubuntu
+    restart: unless-stopped
+    depends_on:
+      influxdb: { condition: service_healthy }
+      dashboard-downloader: { condition: service_completed_successfully }
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: "123456"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      INFLUXDB_ORG: "tcc"
+      INFLUXDB_BUCKET: "internet_metrics"
+      INFLUXDB_TOKEN: "1bRD2iO0ODRNE5dfxHPqnaIoMU_bUx2wupydrs6f4_dZBzXS-lfjwDKT6eobG-8R6KnzbY0LHS7J3bGUDZXH5g=="
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+
+  dashboard-downloader:
+    image: curlimages/curl:latest
+    user: "0:0"
+    entrypoint: ["sh", "-c"]
+    command:
+      - >-
+        curl -fsSL https://codeload.github.com/PolianaCSousa/TCC/tar.gz/refs/heads/speedtest-cli
+        | tar -xzf - -C /grafana --strip-components=2
+        TCC-speedtest-cli/grafana/provisioning
+        TCC-speedtest-cli/grafana/dashboards
+    volumes:
+      - ./grafana:/grafana
+
+  peer:
+    image: polics/tcc-polics
+    pull_policy: always
+    network_mode: host
+    restart: unless-stopped
+    init: true                    # forwards SIGTERM to Python
+    stop_grace_period: 15s
+    depends_on:
+      influxdb: { condition: service_healthy }
+    environment:
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_ORG: "tcc"
+      INFLUXDB_BUCKET: "internet_metrics"
+      INFLUXDB_MEASUREMENT: "tests_results"
+      INFLUXDB_TOKEN: "1bRD2iO0ODRNE5dfxHPqnaIoMU_bUx2wupydrs6f4_dZBzXS-lfjwDKT6eobG-8R6KnzbY0LHS7J3bGUDZXH5g=="
+    volumes:
+      - ./data/peer:/data        # results.csv + logs/
+    # no CPU/memory limit: limiting would bias the measured throughput
+
+volumes:
+  influx-data:
+  influx-config:
+  grafana-data:

@@ -1,18 +1,26 @@
 import asyncio
+import logging
 from custom_types import Client, Server, Peer, Results
-from constants import THROUGHPUT_LABELS
+from constants import THROUGHPUT_LABELS, COMPLETE, ABORTED
+
+logger = logging.getLogger(__name__)
+
 
 class PeerState:
     def __init__(self) -> None:
         self.sid: str | None = None
         self.role: str | None = None
         self.latency_type: str = "unloaded"
+        self.heartbeat_task: asyncio.Task | None = None
+        # True only while the round is in progress
+        self.round_active: bool = False
 
         self.client: Client = {
             "control_channel": None,
             "throughput_channel": None,
             "latency_channel": None,
             "package_loss_channel": None,
+            "heartbeat_channel": None,
             "t0_latency": [],
             "t1_latency": [],
             "t0_loaded_latency": [],
@@ -39,8 +47,13 @@ class PeerState:
 
         self.results: Results = {
             "role": None,
+            "peer_id": None,
+            "remote_peer_id": None,
             "ip": None,
             "candidate_type": None,
+            "remote_candidate_type": None,
+            "via_turn": None,           # "true" if either end used a relay
+            "status": COMPLETE,
             "latency": None,
             "jitter": None,
 
@@ -48,21 +61,25 @@ class PeerState:
             "100KB_download": None,
             "100KB_loaded_latency": None,
             "100KB_loaded_jitter": None,
+            "100KB_package_loss": None,
 
             "1MB_upload": None,
             "1MB_download": None,
             "1MB_loaded_latency": None,
             "1MB_loaded_jitter": None,
+            "1MB_package_loss": None,
 
             "10MB_upload": None,
             "10MB_download": None,
             "10MB_loaded_latency": None,
             "10MB_loaded_jitter": None,
+            "10MB_package_loss": None,
 
-            "100MB_upload": None,
-            "100MB_download": None,
-            "100MB_loaded_latency": None,
-            "100MB_loaded_jitter": None,
+            "50MB_upload": None,
+            "50MB_download": None,
+            "50MB_loaded_latency": None,
+            "50MB_loaded_jitter": None,
+            "50MB_package_loss": None,
 
             "package_loss": None,
         }
@@ -73,6 +90,7 @@ class PeerState:
             "lat_ack_error": asyncio.Event(),
             "upload_error": asyncio.Event(),
             "upload_received": asyncio.Event(),
+            "send_aborted": asyncio.Event(),
             "start_server_upload": asyncio.Event(),
             "latency_finished": asyncio.Event(),
             "throughput_finished": asyncio.Event(),
@@ -84,6 +102,7 @@ class PeerState:
             "ack_package_loss_received": asyncio.Event(),
             "throughput_buffer_drained": asyncio.Event(),
             "round_done": asyncio.Event(),
+            "connection_lost": asyncio.Event(),
         }
     
     def t0_latency_key(self):
@@ -98,8 +117,9 @@ class PeerState:
 
     def reset_results(self):
         for key in self.results:
-            if key not in ("role", "ip", "candidate_type"):
+            if key not in ("role", "ip", "candidate_type", "remote_candidate_type", "via_turn"):
                 self.results[key] = None
+        self.results["status"] = COMPLETE
 
     def reset_for_test(self):
         self.events["upload_received"].clear()
@@ -107,6 +127,16 @@ class PeerState:
         self.events["throughput_finished"].clear()
         self.events["test_complete"].clear()
         self.events["upload_error"].clear()
+        self.events["send_aborted"].clear()
+
+    # marks the round as aborted and wakes the main loop to re-pair
+    def abort_round(self, reason):
+        if not self.round_active:
+            return  # closing between rounds is the normal flow
+        self.round_active = False
+        self.results["status"] = ABORTED
+        logger.error("Rodada abortada: %s", reason)
+        self.events["connection_lost"].set()
 
     def reset_for_new_round(self):
         for event in self.events.values():
@@ -124,7 +154,9 @@ class PeerState:
         self.client["throughput_channel"] = None
         self.client["latency_channel"] = None
         self.client["package_loss_channel"] = None
+        self.client["heartbeat_channel"] = None
         self.server["channels"] = {}
+        self.heartbeat_task = None
 
 
 state = PeerState()

@@ -20,7 +20,7 @@ def get_asn():
         if not asn_number:
             logger.warning("whois não retornou ASN para o IP %s", ip)
             return None
-        asn = asn_number.split()[0]  # o split pega o primeiro ASN retornado
+        asn = asn_number.split()[0]  # the split takes the first ASN returned
         return asn
     except (requests.RequestException, ValueError, KeyError) as e:
         logger.warning("Falha ao descobrir o IP público (%s).", e)
